@@ -289,12 +289,32 @@ const QuizCreator: React.FC<QuizCreatorProps> = ({
     setIsProcessing(true);
     setIsFlashing(true);
     try {
+      const vWidth = video.videoWidth;
+      const vHeight = video.videoHeight;
+      const clientWidth = video.clientWidth || window.innerWidth;
+      const clientHeight = video.clientHeight || window.innerHeight;
+
+      const streamRatio = vWidth / vHeight;
+      const containerRatio = clientWidth / clientHeight;
+
+      let sx = 0, sy = 0, sWidth = vWidth, sHeight = vHeight;
+
+      if (streamRatio > containerRatio) {
+        // Stream is wider than container: crop left/right
+        sWidth = vHeight * containerRatio;
+        sx = (vWidth - sWidth) / 2;
+      } else {
+        // Stream is taller than container: crop top/bottom
+        sHeight = vWidth / containerRatio;
+        sy = (vHeight - sHeight) / 2;
+      }
+
       const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      canvas.width = sWidth;
+      canvas.height = sHeight;
       const ctx = canvas.getContext("2d");
       if (ctx) {
-        ctx.drawImage(video, 0, 0);
+        ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
         const rawUrl = canvas.toDataURL("image/jpeg", 0.9);
         const compressedUrl = await compressImage(rawUrl);
 

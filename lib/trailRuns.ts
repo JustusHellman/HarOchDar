@@ -69,19 +69,7 @@ export async function saveTrailRun(runData: {
     createdAt: new Date().toISOString()
   };
 
-  // Mark trail as completed locally to prevent re-attempts
-  try {
-    const key = `${LOCAL_STORAGE_RUNS_PREFIX}${runData.trailId}`;
-    const existing = JSON.parse(localStorage.getItem(key) || '[]') as TrailRun[];
-    existing.push(newRun);
-    localStorage.setItem(key, JSON.stringify(existing));
-    localStorage.setItem(`locateit_last_run_${runData.trailId}`, newRun.id);
-    localStorage.setItem(`${LOCAL_STORAGE_COMPLETED_PREFIX}${runData.trailId}`, JSON.stringify(newRun));
-  } catch (e) {
-    console.warn("Could not save run to local storage:", e);
-  }
-
-  // Save to Supabase if available
+  // Save to Supabase if available first to obtain official DB ID
   if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabase
@@ -97,20 +85,30 @@ export async function saveTrailRun(runData: {
         .select()
         .single();
 
-      if (error) {
-        console.warn("Supabase save error (falling back to local cache):", error.message);
-        return { success: true, run: newRun };
-      }
-
-      if (data) {
+      if (!error && data) {
         newRun.id = data.id;
         newRun.createdAt = data.created_at;
+      } else if (error) {
+        console.warn("Supabase save error (falling back to local cache):", error.message);
       }
-      return { success: true, run: newRun };
     } catch (err: any) {
       console.warn("Network error inserting trail run:", err);
-      return { success: true, run: newRun };
     }
+  }
+
+  // Save to local storage after finalizing newRun.id
+  try {
+    const key = `${LOCAL_STORAGE_RUNS_PREFIX}${runData.trailId}`;
+    const existing = JSON.parse(localStorage.getItem(key) || '[]') as TrailRun[];
+    const filtered = existing.filter(
+      r => r.id !== newRun.id && r.playerName.trim().toLowerCase() !== newRun.playerName.trim().toLowerCase()
+    );
+    filtered.push(newRun);
+    localStorage.setItem(key, JSON.stringify(filtered));
+    localStorage.setItem(`locateit_last_run_${runData.trailId}`, newRun.id);
+    localStorage.setItem(`${LOCAL_STORAGE_COMPLETED_PREFIX}${runData.trailId}`, JSON.stringify(newRun));
+  } catch (e) {
+    console.warn("Could not save run to local storage:", e);
   }
 
   return { success: true, run: newRun };
@@ -156,11 +154,13 @@ export async function loadTrailRuns(trailId: string): Promise<TrailRun[]> {
         createdAt: d.created_at
       }));
 
-      // Merge remote and local without duplicates
+      // Merge remote and local without duplicates (by ID or player name)
       const seenIds = new Set(remoteRuns.map(r => r.id));
+      const seenPlayerNames = new Set(remoteRuns.map(r => r.playerName.trim().toLowerCase()));
       const combined = [...remoteRuns];
       for (const lr of localRuns) {
-        if (!seenIds.has(lr.id)) {
+        const nameKey = lr.playerName.trim().toLowerCase();
+        if (!seenIds.has(lr.id) && !seenPlayerNames.has(nameKey)) {
           combined.push(lr);
         }
       }

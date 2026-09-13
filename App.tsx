@@ -16,7 +16,6 @@ import Home from './components/Home';
 import JoinGame from './components/JoinGame';
 import SoloPlay from './components/SoloPlay';
 import TrailLeaderboard from './components/TrailLeaderboard';
-import { SoloStartModal } from './components/SoloStartModal';
 import { PermissionModal } from './components/PermissionGate';
 import { clearDraft } from './lib/draftStorage';
 import { hasCompletedTrail } from './lib/trailRuns';
@@ -28,7 +27,6 @@ const App: React.FC = () => {
   const [isHost, setIsHost] = useState(false);
   const [editingTrail, setEditingTrail] = useState<Trail | null>(null);
   const [selectedSoloTrail, setSelectedSoloTrail] = useState<Trail | null>(null);
-  const [soloModalTrail, setSoloModalTrail] = useState<Trail | null>(null);
   const [soloPlayerInfo, setSoloPlayerInfo] = useState<{ name: string; color: string } | null>(null);
   const [activeLeaderboardRunId, setActiveLeaderboardRunId] = useState<string | undefined>(undefined);
   const [currentPlayer, setCurrentPlayer] = useState<Player | null>(null);
@@ -180,7 +178,8 @@ const App: React.FC = () => {
               if (savedName) {
                 handleStartSoloPlay(formattedTrail, savedName, savedColor);
               } else {
-                setSoloModalTrail(formattedTrail);
+                setJoinCode(formattedTrail.id);
+                setView('JOIN');
               }
             }
           }
@@ -374,14 +373,12 @@ const App: React.FC = () => {
   const handleStartSoloPlay = (trail: Trail, name: string, color: string) => {
     setSelectedSoloTrail(trail);
     setSoloPlayerInfo({ name, color });
-    setSoloModalTrail(null);
     setView('SOLO_PLAY');
   };
 
   const handleOpenLeaderboard = (trail: Trail, runId?: string) => {
     setSelectedSoloTrail(trail);
     setActiveLeaderboardRunId(runId);
-    setSoloModalTrail(null);
     setView('LEADERBOARD');
   };
 
@@ -434,20 +431,23 @@ const App: React.FC = () => {
       if (!gameState || gameState.id !== code) {
         // Check if there is a trail matching this ID/code
         try {
+          const searchCode = code.toLowerCase();
           const { data, error } = await supabase
             .from('trails')
             .select('*, questions (*)')
-            .eq('id', code.toLowerCase())
-            .single();
+            .or(`id.eq.${searchCode},id.ilike.${searchCode}%`)
+            .limit(1);
 
-          if (!error && data) {
+          const trailData = data && data.length > 0 ? data[0] : null;
+
+          if (!error && trailData) {
             const formattedTrail: Trail = {
-              id: data.id,
-              name: data.name,
-              creatorId: data.creator_id,
-              lastUpdated: new Date(data.created_at || Date.now()).getTime(),
-              startingView: data.starting_view,
-              questions: (data.questions || []).sort((a: any, b: any) => (a.position_order || 0) - (b.position_order || 0)).map((q: any) => ({
+              id: trailData.id,
+              name: trailData.name,
+              creatorId: trailData.creator_id,
+              lastUpdated: new Date(trailData.created_at || Date.now()).getTime(),
+              startingView: trailData.starting_view,
+              questions: (trailData.questions || []).sort((a: any, b: any) => (a.position_order || 0) - (b.position_order || 0)).map((q: any) => ({
                 id: q.id,
                 imageUrl: q.image_url,
                 location: q.location,
@@ -458,7 +458,11 @@ const App: React.FC = () => {
             };
 
             setIsJoining(false);
-            handleStartSoloPlay(formattedTrail, name, color);
+            if (hasCompletedTrail(formattedTrail.id)) {
+              handleOpenLeaderboard(formattedTrail);
+            } else {
+              handleStartSoloPlay(formattedTrail, name, color);
+            }
             return;
           }
         } catch {
@@ -561,14 +565,6 @@ const App: React.FC = () => {
           onBack={() => setView('HOME')} 
         />
       )}
-      {soloModalTrail && (
-        <SoloStartModal 
-          trail={soloModalTrail} 
-          onStart={(name, color) => handleStartSoloPlay(soloModalTrail, name, color)} 
-          onViewLeaderboard={() => handleOpenLeaderboard(soloModalTrail)} 
-          onClose={() => setSoloModalTrail(null)} 
-        />
-      )}
       {view === 'DASHBOARD' && (
         user ? (
           <Dashboard 
@@ -578,7 +574,7 @@ const App: React.FC = () => {
             onNewTrail={() => { setEditingTrail(null); setView('CREATE'); }} 
             onEditTrail={(t) => { setEditingTrail(t); setView('CREATE'); }} 
             onHostTrail={handleHostTrail} 
-            onSoloPlayTrail={(t) => setSoloModalTrail(t)}
+            onSoloPlayTrail={(t) => { setJoinCode(t.id); setView('JOIN'); }}
             onViewLeaderboard={(t) => handleOpenLeaderboard(t)}
             onDeleteTrail={deleteTrail}
             onLogout={() => { 
@@ -611,7 +607,7 @@ const App: React.FC = () => {
           <TrailLeaderboard 
             trail={selectedSoloTrail} 
             currentRunId={activeLeaderboardRunId} 
-            onPlayAgain={() => setSoloModalTrail(selectedSoloTrail)} 
+            onPlayAgain={() => { setJoinCode(selectedSoloTrail.id); setView('JOIN'); }} 
             onExit={() => setView(user ? 'DASHBOARD' : 'HOME')} 
           />
         ) : (

@@ -201,13 +201,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                     <div className="flex items-center space-x-1">
                       <button 
-                        onClick={() => setTrailToShare(trail)} 
-                        title={strings.dashboard.shareTrailTitle}
-                        className="text-[#0f1a16]/40 hover:text-[#2d4239] transition-colors p-2 rounded-xl hover:bg-black/5"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
-                      </button>
-                      <button 
                         onClick={() => setTrailToDelete(trail)} 
                         title={strings.dashboard.deleteTrail}
                         className="text-[#0f1a16]/20 hover:text-[#7c2d12] transition-colors p-2 rounded-xl hover:bg-black/5"
@@ -223,15 +216,13 @@ const Dashboard: React.FC<DashboardProps> = ({
                       <button onClick={() => onEditTrail(trail)} className="flex-1 py-3.5 btn-sleek btn-sleek-oak !bg-white !text-[#8c6b4f] border border-[#8c6b4f]/20 !shadow-none hover:!bg-[#8c6b4f]/5 text-xs font-black uppercase tracking-wider">{strings.dashboard.edit}</button>
                     </div>
                     <div className="flex gap-3">
-                      {onSoloPlayTrail && (
-                        <button 
-                          onClick={() => onSoloPlayTrail(trail)} 
-                          className="flex-1 py-3 rounded-2xl bg-[#8c6b4f]/10 text-[#8c6b4f] hover:bg-[#8c6b4f]/20 font-black text-xs uppercase tracking-wider transition-colors flex items-center justify-center space-x-1.5"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                          <span>{strings.dashboard.openTrail}</span>
-                        </button>
-                      )}
+                      <button 
+                        onClick={() => setTrailToShare(trail)} 
+                        className="flex-1 py-3 rounded-2xl bg-[#8c6b4f]/10 text-[#8c6b4f] hover:bg-[#8c6b4f]/20 font-black text-xs uppercase tracking-wider transition-colors flex items-center justify-center space-x-1.5"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                        <span>{strings.dashboard.openTrail}</span>
+                      </button>
                       {onViewLeaderboard && (
                         <button 
                           onClick={() => onViewLeaderboard(trail)} 

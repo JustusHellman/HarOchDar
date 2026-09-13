@@ -20,7 +20,11 @@ const CameraView: React.FC<CameraViewProps> = ({
   isFlashing 
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -29,7 +33,7 @@ const CameraView: React.FC<CameraViewProps> = ({
     async function startCamera() {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         console.error("Camera API not supported in this browser.");
-        onClose();
+        onCloseRef.current();
         return;
       }
       try {
@@ -40,13 +44,12 @@ const CameraView: React.FC<CameraViewProps> = ({
           stream.getTracks().forEach(t => t.stop());
           return;
         }
-        setActiveStream(stream);
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
       } catch (err) {
         console.error("Camera access failed", err);
-        onClose();
+        onCloseRef.current();
       }
     }
     startCamera();
@@ -56,7 +59,7 @@ const CameraView: React.FC<CameraViewProps> = ({
         stream.getTracks().forEach(t => t.stop());
       }
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div className="fixed inset-0 z-[100] bg-[#0f1a16] flex flex-col overflow-hidden">
