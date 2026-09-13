@@ -1,0 +1,11 @@
+{
+  "name": "Here & There - Custom Map Quiz",
+  "description": "A GeoGuessr-style game where you create your own quizzes by taking photos at real-world locations and challenge friends to guess them on a map.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
