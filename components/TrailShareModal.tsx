@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Trail } from '../types';
 import { strings } from '../i18n';
+import { getOpenTrailCode } from '../utils';
 
 interface TrailShareModalProps {
   trail: Trail;
@@ -18,9 +19,8 @@ export const TrailShareModal: React.FC<TrailShareModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
   
-  // Direct shareable Solo URL
-  const soloUrl = `${window.location.origin}${window.location.pathname}?solo=${trail.id}`;
-  const trailCode = trail.id.length > 8 ? trail.id.slice(0, 8).toUpperCase() : trail.id.toUpperCase();
+  const trailCode = getOpenTrailCode(trail.id);
+  const soloUrl = `${window.location.origin}${window.location.pathname}?solo=${trailCode}`;
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(soloUrl);

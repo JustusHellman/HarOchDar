@@ -1,7 +1,59 @@
 
 import React, { useState, useEffect, useReducer, useCallback, useRef } from 'react';
 import { GameState, Player, Question, Location, User, AppView, Trail } from './types';
-import { generateId, calculateDistance } from './utils';
+import { generateId, calculateDistance, getOpenTrailCode } from './utils';
+
+const fetchTrailByCode = async (searchCode: string): Promise<Trail | null> => {
+  try {
+    const rawClean = searchCode.trim();
+    const { data, error } = await supabase
+      .from('trails')
+      .select('*, questions (*)')
+      .order('created_at', { ascending: false });
+
+    if (error || !data) return null;
+
+    const match = data.find((t: any) => {
+      const fullId = t.id.toLowerCase();
+      const input = rawClean.toLowerCase();
+      const otCode = getOpenTrailCode(t.id).toLowerCase();
+      const otCodeNoHyphen = otCode.replace('-', '');
+      const shortId = t.id.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().slice(0, 8);
+      const inputNoHyphen = input.replace(/[^a-zA-Z0-9]/g, '');
+
+      return (
+        fullId === input ||
+        otCode === input ||
+        otCodeNoHyphen === inputNoHyphen ||
+        shortId === inputNoHyphen ||
+        (inputNoHyphen.length >= 6 && inputNoHyphen.endsWith(shortId))
+      );
+    });
+
+    if (!match) return null;
+
+    return {
+      id: match.id,
+      name: match.name,
+      creatorId: match.creator_id,
+      lastUpdated: new Date(match.created_at || Date.now()).getTime(),
+      startingView: match.starting_view,
+      questions: (match.questions || [])
+        .sort((a: any, b: any) => (a.position_order || 0) - (b.position_order || 0))
+        .map((q: any) => ({
+          id: q.id,
+          imageUrl: q.image_url,
+          location: q.location,
+          title: q.title,
+          locationSource: q.location_source,
+          trailId: q.trail_id
+        }))
+    };
+  } catch (err) {
+    console.error("fetchTrailByCode error:", err);
+    return null;
+  }
+};
 import { useLanguage } from './i18n';
 import { gameReducer } from './gameReducer';
 import { useGameSync, GameSyncMessage } from './useGameSync';
@@ -139,51 +191,50 @@ const App: React.FC = () => {
 
     if (codeFromUrl) {
       const cleanCode = codeFromUrl.trim().toUpperCase();
-      setJoinCode(cleanCode);
-      setView('JOIN');
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (soloTrailIdFromUrl) {
-      const trailId = soloTrailIdFromUrl.trim().toLowerCase();
-      // Fetch trail details to launch solo mode directly
-      supabase
-        .from('trails')
-        .select('*, questions (*)')
-        .eq('id', trailId)
-        .single()
-        .then(({ data, error }) => {
-          if (!error && data) {
-            const formattedTrail: Trail = {
-              id: data.id,
-              name: data.name,
-              creatorId: data.creator_id,
-              lastUpdated: new Date(data.created_at || Date.now()).getTime(),
-              startingView: data.starting_view,
-              questions: (data.questions || [])
-                .sort((a: any, b: any) => (a.position_order || 0) - (b.position_order || 0))
-                .map((q: any) => ({
-                  id: q.id,
-                  imageUrl: q.image_url,
-                  location: q.location,
-                  title: q.title,
-                  locationSource: q.location_source,
-                  trailId: q.trail_id
-                }))
-            };
-            
-            if (hasCompletedTrail(formattedTrail.id)) {
-              handleOpenLeaderboard(formattedTrail);
+      if (cleanCode.startsWith('OT')) {
+        fetchTrailByCode(cleanCode).then(trail => {
+          if (trail) {
+            const savedName = localStorage.getItem('locateit_player_name');
+            const savedColor = localStorage.getItem('locateit_player_color') || '#6366f1';
+            if (hasCompletedTrail(trail.id)) {
+              handleOpenLeaderboard(trail);
+            } else if (savedName) {
+              handleStartSoloPlay(trail, savedName, savedColor);
             } else {
-              const savedName = localStorage.getItem('locateit_player_name');
-              const savedColor = localStorage.getItem('locateit_player_color') || '#6366f1';
-              if (savedName) {
-                handleStartSoloPlay(formattedTrail, savedName, savedColor);
-              } else {
-                setJoinCode(formattedTrail.id);
-                setView('JOIN');
-              }
+              setJoinCode(getOpenTrailCode(trail.id));
+              setView('JOIN');
             }
+          } else {
+            setJoinCode(cleanCode);
+            setView('JOIN');
           }
         });
+      } else {
+        setJoinCode(cleanCode);
+        setView('JOIN');
+      }
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (soloTrailIdFromUrl) {
+      const soloCode = soloTrailIdFromUrl.trim();
+      fetchTrailByCode(soloCode).then(trail => {
+        if (trail) {
+          if (hasCompletedTrail(trail.id)) {
+            handleOpenLeaderboard(trail);
+          } else {
+            const savedName = localStorage.getItem('locateit_player_name');
+            const savedColor = localStorage.getItem('locateit_player_color') || '#6366f1';
+            if (savedName) {
+              handleStartSoloPlay(trail, savedName, savedColor);
+            } else {
+              setJoinCode(getOpenTrailCode(trail.id));
+              setView('JOIN');
+            }
+          }
+        } else {
+          setJoinCode(soloCode.toUpperCase());
+          setView('JOIN');
+        }
+      });
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
@@ -386,7 +437,7 @@ const App: React.FC = () => {
     if (!user) return;
     setIsHost(true);
     setCurrentPlayer(null); 
-    const newGameId = generateId();
+    const newGameId = `LT-${generateId()}`;
     dispatch({ type: 'INIT_LOBBY', payload: { id: newGameId, questions: trail.questions, hostId: user.id, startingView: trail.startingView } });
     setJoinCode(newGameId);
     setView('LOBBY');
@@ -420,48 +471,40 @@ const App: React.FC = () => {
     localStorage.setItem('locateit_player_name', name);
     localStorage.setItem('locateit_player_color', color);
 
-    // Manual sync request on join attempt for live games
+    // 1. INSTANT OPEN TRAIL BRANCH (Codes starting with OT or OT-)
+    if (code.startsWith('OT')) {
+      setJoinCode(code);
+      setIsJoining(true);
+      const trail = await fetchTrailByCode(code);
+      setIsJoining(false);
+      if (trail) {
+        if (hasCompletedTrail(trail.id)) {
+          handleOpenLeaderboard(trail);
+        } else {
+          handleStartSoloPlay(trail, name, color);
+        }
+      } else {
+        setJoinError(`Could not find Open Trail ${code}. Check the code and try again.`);
+      }
+      return;
+    }
+
+    // 2. LIVE PARTY BRANCH (Codes starting with LT or legacy codes)
     requestSync();
     setJoinCode(code);
     setIsJoining(true);
 
-    // Watchdog for live game join. If no live game is active, check if this is a valid Trail ID to launch Solo/Leaderboard!
     if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
     joinTimeoutRef.current = window.setTimeout(async () => {
       if (!gameState || gameState.id !== code) {
-        // Check if there is a trail matching this ID/code
         try {
-          const searchCode = code.toLowerCase();
-          const { data, error } = await supabase
-            .from('trails')
-            .select('*, questions (*)')
-            .or(`id.eq.${searchCode},id.ilike.${searchCode}%`)
-            .limit(1);
-
-          const trailData = data && data.length > 0 ? data[0] : null;
-
-          if (!error && trailData) {
-            const formattedTrail: Trail = {
-              id: trailData.id,
-              name: trailData.name,
-              creatorId: trailData.creator_id,
-              lastUpdated: new Date(trailData.created_at || Date.now()).getTime(),
-              startingView: trailData.starting_view,
-              questions: (trailData.questions || []).sort((a: any, b: any) => (a.position_order || 0) - (b.position_order || 0)).map((q: any) => ({
-                id: q.id,
-                imageUrl: q.image_url,
-                location: q.location,
-                title: q.title,
-                locationSource: q.location_source,
-                trailId: q.trail_id
-              }))
-            };
-
+          const trail = await fetchTrailByCode(code);
+          if (trail) {
             setIsJoining(false);
-            if (hasCompletedTrail(formattedTrail.id)) {
-              handleOpenLeaderboard(formattedTrail);
+            if (hasCompletedTrail(trail.id)) {
+              handleOpenLeaderboard(trail);
             } else {
-              handleStartSoloPlay(formattedTrail, name, color);
+              handleStartSoloPlay(trail, name, color);
             }
             return;
           }
@@ -472,7 +515,7 @@ const App: React.FC = () => {
         setIsJoining(false);
         setJoinError(`Could not find Expedition ${code}. Check the code and try again.`);
       }
-    }, 2800);
+    }, 2500);
 
     // Store intent to join
     const joinIntent = { name, color, code };

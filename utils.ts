@@ -19,6 +19,16 @@ export const formatDistance = (km: number): string => {
 
 export const generateId = () => Math.random().toString(36).substr(2, 6).toUpperCase();
 
+export const getOpenTrailCode = (trailId: string): string => {
+  if (!trailId) return 'OT-000000';
+  const upper = trailId.toUpperCase();
+  if (upper.startsWith('OT-')) return upper;
+  if (upper.startsWith('OT')) return `OT-${upper.slice(2)}`;
+  const clean = trailId.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  const shortPart = clean.slice(0, 8);
+  return `OT-${shortPart}`;
+};
+
 export const getLeanState = (state: GameState): Partial<GameState> => {
   const { questions, ...leanState } = state;
   return leanState;
