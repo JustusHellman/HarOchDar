@@ -213,7 +213,12 @@ const HostBoard: React.FC<HostBoardProps> = ({
           ) : (
             <button 
               onClick={onNext} 
-              className="w-full py-4 md:py-5 btn-sleek btn-sleek-pine !bg-[#2d4239] !text-xs md:!text-sm flex items-center justify-center gap-2"
+              disabled={!canProceed}
+              className={`w-full py-4 md:py-5 btn-sleek !text-xs md:!text-sm flex items-center justify-center gap-2 transition-all ${
+                canProceed 
+                  ? 'btn-sleek-pine !bg-[#2d4239] active:scale-95 cursor-pointer' 
+                  : 'bg-[#f9fbfa] text-[#0f1a16]/20 shadow-none cursor-not-allowed opacity-60'
+              }`}
             >
               <span>{isLastRound ? strings.game.finishExpedition : strings.game.startNextLocation}</span>
               <span className="text-sm">→</span>
@@ -228,10 +233,8 @@ const HostBoard: React.FC<HostBoardProps> = ({
           <Scoreboard 
             players={gameState.players} 
             isLastRound={isLastRound} 
-            isHost 
+            isHost={false}
             onAnimationComplete={() => onSetCanProceed(true)}
-            onProceed={onNext}
-            canProceed={canProceed}
           />
         ) : (
           <Map center={currentQ.location} zoom={14} markers={markers} lines={lines} roundIndex={gameState.currentQuestionIndex} />

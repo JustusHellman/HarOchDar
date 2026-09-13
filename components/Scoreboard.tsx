@@ -87,7 +87,7 @@ const Scoreboard: React.FC<ScoreboardProps> = ({
             {strings.game.expeditionComplete}
           </h2>
         </div>
-        <div className="flex-1 w-full overflow-y-auto px-4 md:px-6 pb-12 scroll-smooth-touch">
+        <div className="flex-1 min-h-0 w-full overflow-y-auto px-4 md:px-6 pb-12 scroll-smooth-touch">
           <div className="max-w-lg mx-auto space-y-4 md:space-y-6 pt-2 md:pt-4">
             {revealedPlayers.map((p) => {
               const rank = sortedFinal.findIndex(sp => sp.score === p.score) + 1;
@@ -122,20 +122,6 @@ const Scoreboard: React.FC<ScoreboardProps> = ({
             )}
           </div>
         </div>
-        {isHost && onProceed && (
-          <div className="w-full p-4 bg-white/95 backdrop-blur-md border-t border-black/5 flex justify-center shrink-0 z-20 shadow-lg">
-            <button
-              onClick={onProceed}
-              disabled={canProceed === false}
-              className={`w-full max-w-sm py-4 px-6 btn-sleek !text-xs font-black uppercase tracking-widest shadow-xl transition-all flex items-center justify-center gap-2 ${
-                canProceed === false ? 'bg-[#f9fbfa] text-[#0f1a16]/20 shadow-none cursor-not-allowed' : 'btn-sleek-pine !bg-[#2d4239] active:scale-95'
-              }`}
-            >
-              <span>{strings.game.finishExpedition}</span>
-              <span className="text-sm">→</span>
-            </button>
-          </div>
-        )}
       </div>
     );
   }
@@ -145,7 +131,7 @@ const Scoreboard: React.FC<ScoreboardProps> = ({
       <h2 className="text-2xl md:text-3xl font-black p-6 md:p-10 pb-3 md:pb-6 uppercase tracking-tight text-[#0f1a16] shrink-0 text-center">
         {strings.game.roundResults}
       </h2>
-      <div className="flex-1 w-full overflow-y-auto px-4 md:px-6 pb-6 md:pb-12 scroll-smooth-touch">
+      <div className="flex-1 min-h-0 w-full overflow-y-auto px-4 md:px-6 pb-6 md:pb-12 scroll-smooth-touch">
         <div className="max-w-lg mx-auto space-y-3 md:space-y-4">
           {currentList.map((p) => {
             const isGaining = step === 'showingPoints';
@@ -181,20 +167,6 @@ const Scoreboard: React.FC<ScoreboardProps> = ({
           })}
         </div>
       </div>
-      {isHost && onProceed && (
-        <div className="w-full p-4 bg-white/95 backdrop-blur-md border-t border-black/5 flex justify-center shrink-0 z-20 shadow-lg">
-          <button
-            onClick={onProceed}
-            disabled={canProceed === false}
-            className={`w-full max-w-sm py-4 px-6 btn-sleek !text-xs font-black uppercase tracking-widest shadow-xl transition-all flex items-center justify-center gap-2 ${
-              canProceed === false ? 'bg-[#f9fbfa] text-[#0f1a16]/20 shadow-none cursor-not-allowed' : 'btn-sleek-pine !bg-[#2d4239] active:scale-95'
-            }`}
-          >
-            <span>{isLastRound ? strings.game.finishExpedition : strings.game.startNextLocation}</span>
-            <span className="text-sm">→</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 };
