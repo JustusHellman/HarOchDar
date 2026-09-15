@@ -48,20 +48,65 @@ export const useMapLayers = (
     markers.forEach((m) => {
       if (!isValid(m.position)) return;
 
-      const bgColor = m.color || (m.icon === 'target' ? '#ef4444' : m.icon === 'user' ? '#3b82f6' : '#6366f1');
-      
+      const bgColor = m.color || (m.icon === 'target' ? '#dc2626' : m.icon === 'user' ? '#3b82f6' : '#6366f1');
+      const isTarget = m.icon === 'target';
+      const isUser = m.icon === 'user';
+
+      let html = '';
+      let iconSize: [number, number] = [28, 28];
+      let iconAnchor: [number, number] = [14, 14];
+      let zIndexOffset = 500;
+
+      if (isTarget) {
+        iconSize = [32, 32];
+        iconAnchor = [16, 16];
+        zIndexOffset = 3000;
+        html = `
+          <div class="relative flex items-center justify-center select-none" style="transform: translate(-50%, -50%);">
+            <!-- Pulsing outer halo -->
+            <div class="absolute -inset-1.5 rounded-full bg-red-500/40 animate-ping pointer-events-none"></div>
+            <!-- Target Marker Circle -->
+            <div class="relative w-8 h-8 rounded-full bg-[#dc2626] border-2 border-white shadow-lg flex items-center justify-center transition-transform hover:scale-110">
+              <div class="w-2.5 h-2.5 rounded-full bg-white"></div>
+            </div>
+          </div>
+        `;
+      } else if (isUser) {
+        iconSize = [32, 32];
+        iconAnchor = [16, 16];
+        zIndexOffset = 2000;
+        html = `
+          <div class="relative flex items-center justify-center select-none" style="transform: translate(-50%, -50%);">
+            <!-- Player Marker Circle in Player Color -->
+            <div class="w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center transition-transform hover:scale-110" style="background-color: ${bgColor}; box-shadow: 0 0 0 2px ${bgColor}40, 0 4px 12px rgba(0,0,0,0.25);">
+              <div class="w-2.5 h-2.5 rounded-full bg-white"></div>
+            </div>
+          </div>
+        `;
+      } else {
+        iconSize = [28, 28];
+        iconAnchor = [14, 14];
+        zIndexOffset = 500;
+        html = `
+          <div class="relative flex items-center justify-center select-none" style="transform: translate(-50%, -50%);">
+            <div class="w-7 h-7 rounded-full border-2 border-white shadow-md flex items-center justify-center transition-transform hover:scale-110" style="background-color: ${bgColor}">
+              <div class="w-2 h-2 rounded-full bg-white/90"></div>
+            </div>
+          </div>
+        `;
+      }
+
       const icon = L.divIcon({
         className: 'custom-div-icon',
-        html: `<div class="w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center transition-all duration-300" style="background-color: ${bgColor}">
-          <div class="w-2.5 h-2.5 rounded-full bg-white/80"></div>
-        </div>`,
-        iconSize: [32, 32],
-        iconAnchor: [16, 16],
+        html,
+        iconSize,
+        iconAnchor,
       });
 
       const marker = L.marker([m.position.lat, m.position.lng], { 
         icon, 
-        draggable: !!onLocationSelect 
+        draggable: !!onLocationSelect,
+        zIndexOffset
       }).addTo(layerGroup);
 
       if (onLocationSelect) {
@@ -76,7 +121,7 @@ export const useMapLayers = (
           permanent: false, 
           direction: 'top', 
           className: 'nordic-tooltip',
-          offset: [0, -10]
+          offset: [0, -12]
         });
       }
       

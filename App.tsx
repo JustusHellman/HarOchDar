@@ -69,6 +69,7 @@ import JoinGame from './components/JoinGame';
 import SoloPlay from './components/SoloPlay';
 import TrailLeaderboard from './components/TrailLeaderboard';
 import { PermissionModal } from './components/PermissionGate';
+import { HowToPlayModal } from './components/HowToPlayModal';
 import { clearDraft } from './lib/draftStorage';
 import { hasCompletedTrail } from './lib/trailRuns';
 
@@ -83,6 +84,7 @@ const App: React.FC = () => {
   const [activeLeaderboardRunId, setActiveLeaderboardRunId] = useState<string | undefined>(undefined);
   const [currentPlayer, setCurrentPlayer] = useState<Player | null>(null);
   const [showPermissionModal, setShowPermissionModal] = useState(false);
+  const [showHowToPlayModal, setShowHowToPlayModal] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState<string | null>(null); 
   const [isJoining, setIsJoining] = useState(false);
@@ -425,6 +427,11 @@ const App: React.FC = () => {
     setSelectedSoloTrail(trail);
     setSoloPlayerInfo({ name, color });
     setView('SOLO_PLAY');
+    try {
+      if (!localStorage.getItem('locateit_has_seen_how_to_play')) {
+        setShowHowToPlayModal(true);
+      }
+    } catch {}
   };
 
   const handleOpenLeaderboard = (trail: Trail, runId?: string) => {
@@ -547,6 +554,11 @@ const App: React.FC = () => {
           localStorage.removeItem('locateit_join_intent');
           sendAction({ type: 'PLAYER_JOIN_REQUEST', player: newPlayer });
           setView(gameState.status === 'LOBBY' ? 'LOBBY' : 'PLAYING');
+          try {
+            if (!localStorage.getItem('locateit_has_seen_how_to_play')) {
+              setShowHowToPlayModal(true);
+            }
+          } catch {}
         }
       } catch (e) {
         console.error("Failed to parse join intent:", e);
@@ -567,6 +579,7 @@ const App: React.FC = () => {
 
   return (
     <>
+      {showHowToPlayModal && <HowToPlayModal onClose={() => setShowHowToPlayModal(false)} />}
       {notification && (
         <div className="fixed top-6 inset-x-0 z-[10000] flex justify-center px-4 pointer-events-none animate-in fade-in slide-in-from-top-4 duration-300">
           <div className="bg-[#0f1a16] text-white px-6 py-4 rounded-2xl shadow-2xl border border-white/10 flex items-center justify-between gap-4 max-w-md w-full pointer-events-auto">
@@ -604,6 +617,12 @@ const App: React.FC = () => {
             setUser(u); 
             localStorage.setItem('locateit_user', JSON.stringify(u));
             setView('DASHBOARD'); 
+            try {
+              if (!localStorage.getItem('locateit_creator_perms_prompted')) {
+                setShowPermissionModal(true);
+                localStorage.setItem('locateit_creator_perms_prompted', 'true');
+              }
+            } catch {}
           }} 
           onBack={() => setView('HOME')} 
         />
