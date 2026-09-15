@@ -35,7 +35,7 @@ export const TrailShareModal: React.FC<TrailShareModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[5000] bg-[#2d4239]/40 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 text-center animate-in fade-in duration-200 select-none overflow-y-auto">
+    <div className="fixed inset-0 z-[99999] bg-[#2d4239]/40 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 text-center animate-in fade-in duration-200 select-none overflow-y-auto">
       <div className="relative bg-white border border-black/5 p-6 sm:p-8 rounded-[2.5rem] w-full max-w-md shadow-2xl space-y-6 my-auto text-left">
         {/* Header */}
         <div className="flex justify-between items-start gap-3">

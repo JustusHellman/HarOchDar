@@ -301,8 +301,8 @@ export const enStrings = {
     alreadyCompletedBtn: "View Standings & Leaderboard",
   },
   leaderboard: {
-    title: "Trail Standings",
-    overallTab: "Overall Leaderboard",
+    title: "Standings",
+    overallTab: "Overall",
     spotTab: (index: number) => `Spot ${index}`,
     scoringMode: "Scoring Mode",
     totalDistance: "Total Distance",
@@ -667,8 +667,8 @@ export const svStrings: TranslationSchema = {
     alreadyCompletedBtn: "Visa resultat & topplista",
   },
   leaderboard: {
-    title: "Topplista för rundan",
-    overallTab: "Total topplista",
+    title: "Topplista",
+    overallTab: "Totalt",
     spotTab: (index: number) => `Plats ${index}`,
     scoringMode: "Poängläge",
     totalDistance: "Totalt avstånd",
