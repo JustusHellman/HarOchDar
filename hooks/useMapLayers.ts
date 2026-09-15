@@ -62,9 +62,9 @@ export const useMapLayers = (
         iconAnchor = [16, 16];
         zIndexOffset = 3000;
         html = `
-          <div class="relative flex items-center justify-center select-none" style="transform: translate(-50%, -50%);">
+          <div class="relative w-8 h-8 flex items-center justify-center select-none">
             <!-- Pulsing outer halo -->
-            <div class="absolute -inset-1.5 rounded-full bg-red-500/40 animate-ping pointer-events-none"></div>
+            <div class="absolute -inset-1 rounded-full bg-red-500/40 animate-ping pointer-events-none"></div>
             <!-- Target Marker Circle -->
             <div class="relative w-8 h-8 rounded-full bg-[#dc2626] border-2 border-white shadow-lg flex items-center justify-center transition-transform hover:scale-110">
               <div class="w-2.5 h-2.5 rounded-full bg-white"></div>
@@ -76,10 +76,12 @@ export const useMapLayers = (
         iconAnchor = [16, 16];
         zIndexOffset = 2000;
         html = `
-          <div class="relative flex items-center justify-center select-none" style="transform: translate(-50%, -50%);">
-            <!-- Player Marker Circle in Player Color -->
+          <div class="relative w-8 h-8 flex items-center justify-center select-none">
+            <!-- Player Marker Circle with Player Icon -->
             <div class="w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center transition-transform hover:scale-110" style="background-color: ${bgColor}; box-shadow: 0 0 0 2px ${bgColor}40, 0 4px 12px rgba(0,0,0,0.25);">
-              <div class="w-2.5 h-2.5 rounded-full bg-white"></div>
+              <svg class="w-4 h-4 text-white drop-shadow-sm" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+              </svg>
             </div>
           </div>
         `;
@@ -88,7 +90,7 @@ export const useMapLayers = (
         iconAnchor = [14, 14];
         zIndexOffset = 500;
         html = `
-          <div class="relative flex items-center justify-center select-none" style="transform: translate(-50%, -50%);">
+          <div class="relative w-7 h-7 flex items-center justify-center select-none">
             <div class="w-7 h-7 rounded-full border-2 border-white shadow-md flex items-center justify-center transition-transform hover:scale-110" style="background-color: ${bgColor}">
               <div class="w-2 h-2 rounded-full bg-white/90"></div>
             </div>
@@ -121,7 +123,7 @@ export const useMapLayers = (
           permanent: false, 
           direction: 'top', 
           className: 'nordic-tooltip',
-          offset: [0, -12]
+          offset: [0, isTarget || isUser ? -16 : -14]
         });
       }
       

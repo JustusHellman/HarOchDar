@@ -1,7 +1,24 @@
-
 import React, { useState, useEffect, useReducer, useCallback, useRef } from 'react';
 import { GameState, Player, Question, Location, User, AppView, Trail } from './types';
 import { generateId, calculateDistance, getOpenTrailCode } from './utils';
+import { supabase } from './lib/supabase';
+import { useLanguage } from './i18n';
+import { gameReducer } from './gameReducer';
+import { useGameSync, GameSyncMessage } from './useGameSync';
+import { useTrails } from './hooks/useTrails';
+import QuizCreator from './components/QuizCreator';
+import Lobby from './components/Lobby';
+import GameBoard from './components/GameBoard';
+import Auth from './components/Auth';
+import Dashboard from './components/Dashboard';
+import Home from './components/Home';
+import JoinGame from './components/JoinGame';
+import SoloPlay from './components/SoloPlay';
+import TrailLeaderboard from './components/TrailLeaderboard';
+import { PermissionModal } from './components/PermissionGate';
+import { HowToPlayModal } from './components/HowToPlayModal';
+import { clearDraft } from './lib/draftStorage';
+import { hasCompletedTrail } from './lib/trailRuns';
 
 const fetchTrailByCode = async (searchCode: string): Promise<Trail | null> => {
   try {
@@ -54,24 +71,48 @@ const fetchTrailByCode = async (searchCode: string): Promise<Trail | null> => {
     return null;
   }
 };
-import { useLanguage } from './i18n';
-import { gameReducer } from './gameReducer';
-import { useGameSync, GameSyncMessage } from './useGameSync';
-import { useTrails } from './hooks/useTrails';
-import { supabase } from './lib/supabase';
-import QuizCreator from './components/QuizCreator';
-import Lobby from './components/Lobby';
-import GameBoard from './components/GameBoard';
-import Auth from './components/Auth';
-import Dashboard from './components/Dashboard';
-import Home from './components/Home';
-import JoinGame from './components/JoinGame';
-import SoloPlay from './components/SoloPlay';
-import TrailLeaderboard from './components/TrailLeaderboard';
-import { PermissionModal } from './components/PermissionGate';
-import { HowToPlayModal } from './components/HowToPlayModal';
-import { clearDraft } from './lib/draftStorage';
-import { hasCompletedTrail } from './lib/trailRuns';
+
+const viewToHash = (v: AppView, params?: { trailId?: string; code?: string; runId?: string }): string => {
+  switch (v) {
+    case 'HOME': return '#home';
+    case 'JOIN': return params?.code ? `#join?code=${encodeURIComponent(params.code)}` : '#join';
+    case 'AUTH': return '#auth';
+    case 'DASHBOARD': return '#dashboard';
+    case 'CREATE': return params?.trailId ? `#create?trailId=${encodeURIComponent(params.trailId)}` : '#create';
+    case 'SOLO_PLAY': return params?.trailId ? `#solo?trailId=${encodeURIComponent(params.trailId)}` : '#solo';
+    case 'LEADERBOARD': {
+      let h = params?.trailId ? `#leaderboard?trailId=${encodeURIComponent(params.trailId)}` : '#leaderboard';
+      if (params?.runId) h += `&runId=${encodeURIComponent(params.runId)}`;
+      return h;
+    }
+    case 'LOBBY': return params?.code ? `#lobby?code=${encodeURIComponent(params.code)}` : '#lobby';
+    case 'PLAYING': return params?.code ? `#play?code=${encodeURIComponent(params.code)}` : '#play';
+    default: return '#home';
+  }
+};
+
+const parseHash = (hashStr: string): { view: AppView; trailId?: string; code?: string; runId?: string } => {
+  const clean = hashStr.replace(/^#\/?/, '').trim();
+  if (!clean || clean === 'home') return { view: 'HOME' };
+  
+  const [route, queryStr] = clean.split('?');
+  const params = new URLSearchParams(queryStr || '');
+  const trailId = params.get('trailId') || params.get('trail') || undefined;
+  const code = params.get('code') || params.get('join') || undefined;
+  const runId = params.get('runId') || undefined;
+
+  switch (route.toLowerCase()) {
+    case 'join': return { view: 'JOIN', code };
+    case 'auth': return { view: 'AUTH' };
+    case 'dashboard': return { view: 'DASHBOARD' };
+    case 'create': return { view: 'CREATE', trailId };
+    case 'solo': return { view: 'SOLO_PLAY', trailId };
+    case 'leaderboard': return { view: 'LEADERBOARD', trailId, runId };
+    case 'lobby': return { view: 'LOBBY', code };
+    case 'play': return { view: 'PLAYING', code };
+    default: return { view: 'HOME' };
+  }
+};
 
 const App: React.FC = () => {
   const { strings } = useLanguage();
@@ -101,6 +142,43 @@ const App: React.FC = () => {
   const { trails, saveTrail, deleteTrail, isLoading: isTrailsLoading } = useTrails(user);
   const [gameState, dispatch] = useReducer(gameReducer, null);
 
+  // Centralized Navigation helper with Browser History Synchronization
+  const navigateTo = useCallback((targetView: AppView, options?: {
+    trail?: Trail | null;
+    trailId?: string;
+    code?: string;
+    runId?: string;
+    playerInfo?: { name: string; color: string };
+    replace?: boolean;
+    skipHistory?: boolean;
+  }) => {
+    const activeTrailId = options?.trailId || options?.trail?.id || selectedSoloTrail?.id;
+    const activeCode = options?.code || joinCode || undefined;
+    const activeRunId = options?.runId || activeLeaderboardRunId || undefined;
+
+    if (options?.trail !== undefined) setSelectedSoloTrail(options.trail);
+    if (options?.code !== undefined) setJoinCode(options.code);
+    if (options?.runId !== undefined) setActiveLeaderboardRunId(options.runId);
+    if (options?.playerInfo) setSoloPlayerInfo(options.playerInfo);
+
+    setView(targetView);
+
+    if (!options?.skipHistory) {
+      const targetHash = viewToHash(targetView, { trailId: activeTrailId, code: activeCode, runId: activeRunId });
+      const historyState = { view: targetView, trailId: activeTrailId, code: activeCode, runId: activeRunId };
+      
+      try {
+        if (options?.replace) {
+          window.history.replaceState(historyState, document.title, targetHash);
+        } else if (window.location.hash !== targetHash) {
+          window.history.pushState(historyState, document.title, targetHash);
+        }
+      } catch (err) {
+        console.error("History navigation error:", err);
+      }
+    }
+  }, [selectedSoloTrail?.id, joinCode, activeLeaderboardRunId]);
+
   // Sync view with game status (for both host and players)
   useEffect(() => {
     if (!gameState) return;
@@ -108,9 +186,9 @@ const App: React.FC = () => {
     const shouldBeInGameView = ['PLAYING', 'RESULTS', 'SCOREBOARD', 'COUNTDOWN', 'FINISHED'].includes(gameState.status);
     
     if (shouldBeInGameView && !isInGameView && (view === 'LOBBY' || view === 'JOIN')) {
-      setView('PLAYING');
+      navigateTo('PLAYING', { code: gameState.id, replace: true });
     }
-  }, [gameState?.status, view]);
+  }, [gameState?.status, gameState?.id, view, navigateTo]);
 
   // handleExitGame is defined here and uses sendActionRef to avoid "used before declaration" error
   const handleExitGame = useCallback((silent = false, targetView?: AppView) => {
@@ -149,14 +227,9 @@ const App: React.FC = () => {
     dispatch({ type: 'EXIT_GAME' });
     
     // 6. Safely route back:
-    if (targetView) {
-      setView(targetView);
-    } else if (wasHost && user) {
-      setView('DASHBOARD');
-    } else {
-      setView('HOME');
-    }
-  }, [isHost, currentPlayer, user]);
+    const nextView = targetView || (wasHost && user ? 'DASHBOARD' : 'HOME');
+    navigateTo(nextView, { replace: true });
+  }, [isHost, currentPlayer, user, navigateTo]);
 
   const { broadcast, sendAction, requestSync, clearCache } = useGameSync(
     useCallback((state) => dispatch({ type: 'SYNC_STATE', payload: state }), []),
@@ -170,7 +243,7 @@ const App: React.FC = () => {
         setNotification({ title: "Expedition Notice", message: strings.lobby.kickedDesc, type: 'info' });
         handleExitGame(true);
       }
-    }, [currentPlayer?.id, handleExitGame]),
+    }, [currentPlayer?.id, handleExitGame, strings.lobby.kickedDesc]),
     useCallback(() => {
       // Session Ended: Host disconnected explicitly
       if (gameState?.status !== 'FINISHED') {
@@ -185,16 +258,99 @@ const App: React.FC = () => {
     sendActionRef.current = sendAction;
   }, [sendAction]);
 
-  // Handle Join & Solo Deep Links
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const codeFromUrl = params.get('join');
-    const soloTrailIdFromUrl = params.get('solo');
+  const handleStartSoloPlay = useCallback((trail: Trail, name: string, color: string) => {
+    setSelectedSoloTrail(trail);
+    setSoloPlayerInfo({ name, color });
+    navigateTo('SOLO_PLAY', { trail, trailId: trail.id, playerInfo: { name, color } });
+    try {
+      if (!localStorage.getItem('locateit_has_seen_how_to_play')) {
+        setShowHowToPlayModal(true);
+      }
+    } catch {}
+  }, [navigateTo]);
 
-    if (codeFromUrl) {
-      const cleanCode = codeFromUrl.trim().toUpperCase();
-      if (cleanCode.startsWith('OT')) {
-        fetchTrailByCode(cleanCode).then(trail => {
+  const handleOpenLeaderboard = useCallback((trail: Trail, runId?: string) => {
+    setSelectedSoloTrail(trail);
+    setActiveLeaderboardRunId(runId);
+    navigateTo('LEADERBOARD', { trail, trailId: trail.id, runId });
+  }, [navigateTo]);
+
+  const handleResumeHost = useCallback(() => {
+    const saved = localStorage.getItem('locateit_active_host_state');
+    if (saved) {
+      try {
+        const state = JSON.parse(saved) as GameState;
+        if (state && state.status && state.status !== 'FINISHED') {
+          setIsHost(true);
+          setCurrentPlayer(null);
+          setJoinCode(state.id);
+          dispatch({ type: 'SYNC_STATE', payload: state });
+          const target = state.status === 'LOBBY' ? 'LOBBY' : 'PLAYING';
+          navigateTo(target, { code: state.id, replace: true });
+          return;
+        }
+      } catch (e) {
+        console.error("Failed to resume host state:", e);
+      }
+      localStorage.removeItem('locateit_active_host_state');
+    }
+  }, [navigateTo]);
+
+  // Handle Browser Back / Forward Button (popstate)
+  useEffect(() => {
+    const handlePopState = async (event: PopStateEvent) => {
+      const parsed = event.state && event.state.view 
+        ? (event.state as { view: AppView; trailId?: string; code?: string; runId?: string })
+        : parseHash(window.location.hash);
+
+      const targetView = parsed.view;
+
+      // If backing out from active multiplayer game
+      if (gameState && (view === 'PLAYING' || view === 'LOBBY') && targetView !== 'PLAYING' && targetView !== 'LOBBY') {
+        handleExitGame(false, targetView);
+        return;
+      }
+
+      if (parsed.code) {
+        setJoinCode(parsed.code);
+      }
+
+      if (parsed.runId) {
+        setActiveLeaderboardRunId(parsed.runId);
+      }
+
+      if (parsed.trailId) {
+        if (!selectedSoloTrail || selectedSoloTrail.id !== parsed.trailId) {
+          const trail = await fetchTrailByCode(parsed.trailId);
+          if (trail) {
+            setSelectedSoloTrail(trail);
+            if (targetView === 'SOLO_PLAY') {
+              const savedName = localStorage.getItem('locateit_player_name') || 'Explorer';
+              const savedColor = localStorage.getItem('locateit_player_color') || '#2d4239';
+              setSoloPlayerInfo({ name: savedName, color: savedColor });
+            }
+          }
+        }
+      }
+
+      setView(targetView);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [gameState, view, selectedSoloTrail, handleExitGame]);
+
+  // Initial URL & Session Restoration (Deep links & Refresh Support)
+  useEffect(() => {
+    const restoreSession = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const codeFromUrl = params.get('join');
+      const soloTrailIdFromUrl = params.get('solo');
+
+      if (codeFromUrl) {
+        const cleanCode = codeFromUrl.trim().toUpperCase();
+        if (cleanCode.startsWith('OT')) {
+          const trail = await fetchTrailByCode(cleanCode);
           if (trail) {
             const savedName = localStorage.getItem('locateit_player_name');
             const savedColor = localStorage.getItem('locateit_player_color') || '#6366f1';
@@ -204,21 +360,17 @@ const App: React.FC = () => {
               handleStartSoloPlay(trail, savedName, savedColor);
             } else {
               setJoinCode(getOpenTrailCode(trail.id));
-              setView('JOIN');
+              navigateTo('JOIN', { code: getOpenTrailCode(trail.id), replace: true });
             }
-          } else {
-            setJoinCode(cleanCode);
-            setView('JOIN');
+            return;
           }
-        });
-      } else {
+        }
         setJoinCode(cleanCode);
-        setView('JOIN');
-      }
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (soloTrailIdFromUrl) {
-      const soloCode = soloTrailIdFromUrl.trim();
-      fetchTrailByCode(soloCode).then(trail => {
+        navigateTo('JOIN', { code: cleanCode, replace: true });
+        return;
+      } else if (soloTrailIdFromUrl) {
+        const soloCode = soloTrailIdFromUrl.trim();
+        const trail = await fetchTrailByCode(soloCode);
         if (trail) {
           if (hasCompletedTrail(trail.id)) {
             handleOpenLeaderboard(trail);
@@ -229,17 +381,55 @@ const App: React.FC = () => {
               handleStartSoloPlay(trail, savedName, savedColor);
             } else {
               setJoinCode(getOpenTrailCode(trail.id));
-              setView('JOIN');
+              navigateTo('JOIN', { code: getOpenTrailCode(trail.id), replace: true });
             }
           }
         } else {
           setJoinCode(soloCode.toUpperCase());
-          setView('JOIN');
+          navigateTo('JOIN', { code: soloCode.toUpperCase(), replace: true });
         }
-      });
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, []);
+        return;
+      }
+
+      // Check current hash on fresh page load or browser refresh
+      const parsed = parseHash(window.location.hash);
+      
+      if (parsed.view === 'SOLO_PLAY' && parsed.trailId) {
+        const trail = await fetchTrailByCode(parsed.trailId);
+        if (trail) {
+          const savedName = localStorage.getItem('locateit_player_name') || 'Explorer';
+          const savedColor = localStorage.getItem('locateit_player_color') || '#2d4239';
+          setSelectedSoloTrail(trail);
+          setSoloPlayerInfo({ name: savedName, color: savedColor });
+          setView('SOLO_PLAY');
+          return;
+        }
+      } else if (parsed.view === 'LEADERBOARD' && parsed.trailId) {
+        const trail = await fetchTrailByCode(parsed.trailId);
+        if (trail) {
+          setSelectedSoloTrail(trail);
+          setActiveLeaderboardRunId(parsed.runId);
+          setView('LEADERBOARD');
+          return;
+        }
+      } else if (parsed.view === 'JOIN') {
+        if (parsed.code) setJoinCode(parsed.code);
+        setView('JOIN');
+        return;
+      } else if (parsed.view === 'AUTH') {
+        setView('AUTH');
+        return;
+      } else if (parsed.view === 'CREATE') {
+        setView('CREATE');
+        return;
+      } else if (parsed.view === 'DASHBOARD') {
+        setView('DASHBOARD');
+        return;
+      }
+    };
+
+    restoreSession();
+  }, [handleOpenLeaderboard, handleStartSoloPlay, navigateTo]);
 
   // Host: Broadcast changes
   useEffect(() => {
@@ -310,20 +500,14 @@ const App: React.FC = () => {
           setIsJoining(false);
           setIsRejoining(false);
           
-          // Restore guess if it's the same round
-          const savedGuess = localStorage.getItem('locateit_saved_guess');
-          const savedRound = localStorage.getItem('locateit_saved_round');
-          if (savedGuess && savedRound === String(gameState.currentQuestionIndex)) {
-            // The PlayerBoard will handle the actual marker display if it's in the gameState
-            // but we might need to sync local state if they haven't submitted yet.
-          }
-          
-          setView(gameState.status === 'LOBBY' ? 'LOBBY' : 'PLAYING');
+          const target = gameState.status === 'LOBBY' ? 'LOBBY' : 'PLAYING';
+          navigateTo(target, { code: gameState.id, replace: true });
         }
       }
     }
-  }, [gameState, isHost, currentPlayer, view]);
+  }, [gameState, isHost, currentPlayer, view, navigateTo]);
 
+  // User Authentication & Session Check
   useEffect(() => {
     const savedUser = localStorage.getItem('locateit_user');
     if (savedUser) {
@@ -390,13 +574,13 @@ const App: React.FC = () => {
     } else if (savedCode) {
       setJoinCode(savedCode);
       setIsRejoining(true);
-      setView('JOIN');
+      navigateTo('JOIN', { code: savedCode, replace: true });
     }
 
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [handleResumeHost, navigateTo]);
 
   const handleCompleteTrail = async (
     questions: Question[], 
@@ -412,7 +596,7 @@ const App: React.FC = () => {
         clearDraft(cleanEditingId);
         clearDraft(undefined);
         setEditingTrail(null);
-        setView('DASHBOARD');
+        navigateTo('DASHBOARD');
       } else {
         setNotification({ title: "Save Failed", message: result.error || "Could not save trail.", type: 'error' });
       }
@@ -423,23 +607,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStartSoloPlay = (trail: Trail, name: string, color: string) => {
-    setSelectedSoloTrail(trail);
-    setSoloPlayerInfo({ name, color });
-    setView('SOLO_PLAY');
-    try {
-      if (!localStorage.getItem('locateit_has_seen_how_to_play')) {
-        setShowHowToPlayModal(true);
-      }
-    } catch {}
-  };
-
-  const handleOpenLeaderboard = (trail: Trail, runId?: string) => {
-    setSelectedSoloTrail(trail);
-    setActiveLeaderboardRunId(runId);
-    setView('LEADERBOARD');
-  };
-
   const handleHostTrail = (trail: Trail) => {
     if (!user) return;
     setIsHost(true);
@@ -447,27 +614,7 @@ const App: React.FC = () => {
     const newGameId = `LT-${generateId()}`;
     dispatch({ type: 'INIT_LOBBY', payload: { id: newGameId, questions: trail.questions, hostId: user.id, startingView: trail.startingView } });
     setJoinCode(newGameId);
-    setView('LOBBY');
-  };
-
-  const handleResumeHost = () => {
-    const saved = localStorage.getItem('locateit_active_host_state');
-    if (saved) {
-      try {
-        const state = JSON.parse(saved) as GameState;
-        if (state && state.status && state.status !== 'FINISHED') {
-          setIsHost(true);
-          setCurrentPlayer(null);
-          setJoinCode(state.id);
-          dispatch({ type: 'SYNC_STATE', payload: state });
-          setView(state.status === 'LOBBY' ? 'LOBBY' : 'PLAYING');
-          return;
-        }
-      } catch (e) {
-        console.error("Failed to resume host state:", e);
-      }
-      localStorage.removeItem('locateit_active_host_state');
-    }
+    navigateTo('LOBBY', { code: newGameId });
   };
 
   const handleJoinGame = async (gameCode: string, name: string, color: string) => {
@@ -543,7 +690,8 @@ const App: React.FC = () => {
             setCurrentPlayer(existingById);
             setIsJoining(false);
             localStorage.removeItem('locateit_join_intent');
-            setView(gameState.status === 'LOBBY' ? 'LOBBY' : 'PLAYING');
+            const target = gameState.status === 'LOBBY' ? 'LOBBY' : 'PLAYING';
+            navigateTo(target, { code: gameState.id, replace: true });
             return;
           }
 
@@ -553,7 +701,8 @@ const App: React.FC = () => {
           localStorage.setItem('locateit_active_game_code', intent.code);
           localStorage.removeItem('locateit_join_intent');
           sendAction({ type: 'PLAYER_JOIN_REQUEST', player: newPlayer });
-          setView(gameState.status === 'LOBBY' ? 'LOBBY' : 'PLAYING');
+          const target = gameState.status === 'LOBBY' ? 'LOBBY' : 'PLAYING';
+          navigateTo(target, { code: gameState.id, replace: true });
           try {
             if (!localStorage.getItem('locateit_has_seen_how_to_play')) {
               setShowHowToPlayModal(true);
@@ -565,7 +714,7 @@ const App: React.FC = () => {
         localStorage.removeItem('locateit_join_intent');
       }
     }
-  }, [gameState, isHost, currentPlayer, sendAction]);
+  }, [gameState, isHost, currentPlayer, sendAction, navigateTo]);
 
   // Ensure host receives player registration if dropped
   useEffect(() => {
@@ -598,12 +747,12 @@ const App: React.FC = () => {
       )}
       {showPermissionModal && <PermissionModal onClose={() => setShowPermissionModal(false)} />}
       {view === 'HOME' && (
-        <Home onJoin={() => setView('JOIN')} onDesign={() => user ? setView('DASHBOARD') : setView('AUTH')} />
+        <Home onJoin={() => navigateTo('JOIN')} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
       )}
       {view === 'JOIN' && (
         <JoinGame 
           prefilledCode={joinCode || ''} 
-          onBack={() => { handleExitGame(); setJoinCode(null); }} 
+          onBack={() => { handleExitGame(); navigateTo('HOME'); }} 
           onJoin={handleJoinGame} 
           onCodeChange={setJoinCode} 
           isSearching={isJoining} 
@@ -616,7 +765,7 @@ const App: React.FC = () => {
           onAuthSuccess={(u) => { 
             setUser(u); 
             localStorage.setItem('locateit_user', JSON.stringify(u));
-            setView('DASHBOARD'); 
+            navigateTo('DASHBOARD'); 
             try {
               if (!localStorage.getItem('locateit_creator_perms_prompted')) {
                 setShowPermissionModal(true);
@@ -624,7 +773,7 @@ const App: React.FC = () => {
               }
             } catch {}
           }} 
-          onBack={() => setView('HOME')} 
+          onBack={() => navigateTo('HOME')} 
         />
       )}
       {view === 'DASHBOARD' && (
@@ -633,22 +782,22 @@ const App: React.FC = () => {
             user={user} 
             trails={trails}
             isLoading={isTrailsLoading}
-            onNewTrail={() => { setEditingTrail(null); setView('CREATE'); }} 
-            onEditTrail={(t) => { setEditingTrail(t); setView('CREATE'); }} 
+            onNewTrail={() => { setEditingTrail(null); navigateTo('CREATE'); }} 
+            onEditTrail={(t) => { setEditingTrail(t); navigateTo('CREATE', { trailId: t.id }); }} 
             onHostTrail={handleHostTrail} 
-            onSoloPlayTrail={(t) => { setJoinCode(t.id); setView('JOIN'); }}
+            onSoloPlayTrail={(t) => { setJoinCode(t.id); navigateTo('JOIN', { code: t.id }); }}
             onViewLeaderboard={(t) => handleOpenLeaderboard(t)}
             onDeleteTrail={deleteTrail}
             onLogout={() => { 
               localStorage.removeItem('locateit_user'); 
               supabase.auth.signOut().catch(() => {});
               setUser(null); 
-              setView('HOME'); 
+              navigateTo('HOME'); 
             }}
             onResumeHost={localStorage.getItem('locateit_active_host_state') ? handleResumeHost : undefined}
           />
         ) : (
-          <Home onJoin={() => setView('JOIN')} onDesign={() => setView('AUTH')} />
+          <Home onJoin={() => navigateTo('JOIN')} onDesign={() => navigateTo('AUTH')} />
         )
       )}
       {view === 'SOLO_PLAY' && (
@@ -658,10 +807,10 @@ const App: React.FC = () => {
             playerName={soloPlayerInfo.name} 
             playerColor={soloPlayerInfo.color} 
             onFinish={(run) => handleOpenLeaderboard(selectedSoloTrail, run.id)} 
-            onExit={() => setView(user ? 'DASHBOARD' : 'HOME')} 
+            onExit={() => navigateTo(user ? 'DASHBOARD' : 'HOME')} 
           />
         ) : (
-          <Home onJoin={() => setView('JOIN')} onDesign={() => user ? setView('DASHBOARD') : setView('AUTH')} />
+          <Home onJoin={() => navigateTo('JOIN')} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
         )
       )}
       {view === 'LEADERBOARD' && (
@@ -669,11 +818,11 @@ const App: React.FC = () => {
           <TrailLeaderboard 
             trail={selectedSoloTrail} 
             currentRunId={activeLeaderboardRunId} 
-            onPlayAgain={() => { setJoinCode(selectedSoloTrail.id); setView('JOIN'); }} 
-            onExit={() => setView(user ? 'DASHBOARD' : 'HOME')} 
+            onPlayAgain={() => { setJoinCode(selectedSoloTrail.id); navigateTo('JOIN', { code: selectedSoloTrail.id }); }} 
+            onExit={() => navigateTo(user ? 'DASHBOARD' : 'HOME')} 
           />
         ) : (
-          <Home onJoin={() => setView('JOIN')} onDesign={() => user ? setView('DASHBOARD') : setView('AUTH')} />
+          <Home onJoin={() => navigateTo('JOIN')} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
         )
       )}
       {view === 'CREATE' && (
@@ -681,12 +830,12 @@ const App: React.FC = () => {
           <QuizCreator 
             initialTrail={editingTrail || undefined} 
             onComplete={handleCompleteTrail} 
-            onCancel={() => setView('DASHBOARD')} 
+            onCancel={() => navigateTo('DASHBOARD')} 
             onRequestPermissions={() => setShowPermissionModal(true)}
             isSaving={isSaving}
           />
         ) : (
-          <Home onJoin={() => setView('JOIN')} onDesign={() => setView('AUTH')} />
+          <Home onJoin={() => navigateTo('JOIN')} onDesign={() => navigateTo('AUTH')} />
         )
       )}
       {view === 'LOBBY' && (
@@ -703,7 +852,7 @@ const App: React.FC = () => {
             }} 
           />
         ) : (
-          <Home onJoin={() => setView('JOIN')} onDesign={() => user ? setView('DASHBOARD') : setView('AUTH')} />
+          <Home onJoin={() => navigateTo('JOIN')} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
         )
       )}
       {view === 'PLAYING' && (
@@ -740,7 +889,7 @@ const App: React.FC = () => {
             onExit={(targetView) => handleExitGame(false, targetView)}
           />
         ) : (
-          <Home onJoin={() => setView('JOIN')} onDesign={() => user ? setView('DASHBOARD') : setView('AUTH')} />
+          <Home onJoin={() => navigateTo('JOIN')} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
         )
       )}
     </>

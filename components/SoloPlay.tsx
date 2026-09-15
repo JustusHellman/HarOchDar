@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Trail, Location, SpotGuess, TrailRun } from '../types';
 import { calculateDistance, formatDistance } from '../utils';
 import { strings } from '../i18n';
@@ -27,6 +27,7 @@ export const SoloPlay: React.FC<SoloPlayProps> = ({
   onExit
 }) => {
   const storageKey = `${STORAGE_KEY_PREFIX}${trail.id}`;
+  const viewerRowRef = useRef<HTMLDivElement | null>(null);
 
   // Restore saved state if available
   const [currentIndex, setCurrentIndex] = useState<number>(() => {
@@ -112,6 +113,16 @@ export const SoloPlay: React.FC<SoloPlayProps> = ({
       }));
     } catch {}
   }, [storageKey, trail.id, currentIndex, guesses]);
+
+  // Auto-scroll to player's row in the scoreboard
+  useEffect(() => {
+    if (isLockedIn && viewerRowRef.current) {
+      const timer = setTimeout(() => {
+        viewerRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isLockedIn, currentIndex]);
 
   // Calculate default map view
   const defaultMapConfig = useMemo(() => {
@@ -396,31 +407,36 @@ export const SoloPlay: React.FC<SoloPlayProps> = ({
       )}
 
       {/* Left Column: Image & Results / Controls Panel */}
-      <div className="w-full md:w-1/2 h-[50vh] md:h-full flex flex-col border-b md:border-b-0 md:border-r border-black/5 bg-[#f9fbfa] z-10 shrink-0">
-        <header className="p-3.5 sm:p-5 flex justify-between items-center bg-white/60 backdrop-blur-md border-b border-black/5 shrink-0">
-          <div className="flex items-center space-x-3">
+      <div className={`w-full md:w-1/2 flex flex-col border-b md:border-b-0 md:border-r border-black/5 bg-[#f9fbfa] z-10 shrink-0 transition-all duration-300 ${isLockedIn ? 'h-[58vh] md:h-full' : 'h-[50vh] md:h-full'}`}>
+        <header className="p-3 sm:p-4 flex justify-between items-center bg-white/80 backdrop-blur-md border-b border-black/5 shrink-0">
+          <div className="flex items-center space-x-3 min-w-0">
             <button 
               onClick={() => setShowExitConfirm(true)}
-              className="p-2 rounded-xl bg-black/5 hover:bg-black/10 text-[#0f1a16]/60 hover:text-[#0f1a16] transition-colors"
+              className="p-2 rounded-xl bg-black/5 hover:bg-black/10 text-[#0f1a16]/60 hover:text-[#0f1a16] transition-colors shrink-0"
               title={strings.solo.leaveTitle}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
             </button>
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-[#8c6b4f]">{strings.solo.title}</span>
-              <h2 className="text-xs sm:text-sm font-black uppercase tracking-tight truncate max-w-[180px] sm:max-w-[240px]">{trail.name}</h2>
+            <div className="min-w-0">
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#8c6b4f] block leading-none">{strings.solo.title}</span>
+              <h2 className="text-xs sm:text-sm font-black uppercase tracking-tight truncate max-w-[160px] sm:max-w-[220px] mt-0.5">{trail.name}</h2>
             </div>
           </div>
           
-          <div className="flex items-center space-x-2">
-            <div className="px-3 py-1.5 rounded-xl bg-[#2d4239]/10 text-[#2d4239] font-black text-xs uppercase tracking-wider">
+          <div className="flex items-center space-x-2 shrink-0">
+            {isLockedIn && (
+              <div className="px-2.5 py-1 rounded-xl bg-[#2d4239] text-white font-black text-xs tracking-tight shadow-sm">
+                {formatDistance(currentDistance)}
+              </div>
+            )}
+            <div className="px-2.5 py-1 rounded-xl bg-[#2d4239]/10 text-[#2d4239] font-black text-xs uppercase tracking-wider">
               {currentIndex + 1} / {trail.questions.length}
             </div>
           </div>
         </header>
 
         {/* Photo Container */}
-        <div className={`relative overflow-hidden bg-black flex items-center justify-center group transition-all duration-300 ${isLockedIn ? 'h-36 sm:h-44 md:h-52 shrink-0' : 'flex-1'}`}>
+        <div className={`relative overflow-hidden bg-black flex items-center justify-center group transition-all duration-300 ${isLockedIn ? 'h-20 sm:h-24 md:h-36 shrink-0' : 'flex-1'}`}>
           <img 
             src={currentQ.imageUrl} 
             alt="Target Spot" 
@@ -429,77 +445,59 @@ export const SoloPlay: React.FC<SoloPlayProps> = ({
           />
           <button 
             onClick={() => setIsFullscreenImage(true)}
-            className="absolute bottom-3 right-3 p-2.5 bg-black/60 hover:bg-black/80 text-white rounded-xl backdrop-blur-md shadow-lg transition-all"
+            className="absolute bottom-2 right-2 p-2 bg-black/60 hover:bg-black/80 text-white rounded-xl backdrop-blur-md shadow-lg transition-all"
             title={strings.creator.photoInspectTitle}
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
           </button>
         </div>
 
         {/* Action / Results Panel */}
         {!isLockedIn ? (
-          <div className="p-4 sm:p-6 bg-white border-t border-black/5 flex items-center justify-between gap-4 shrink-0">
-            <span className="text-xs font-bold text-[#0f1a16]/60 uppercase tracking-wider">
+          <div className="p-4 sm:p-5 bg-white border-t border-black/5 flex items-center justify-between gap-4 shrink-0">
+            <span className="text-xs font-bold text-[#0f1a16]/60 uppercase tracking-wider truncate">
               {selectedGuess ? strings.game.pinPlacedReady : strings.game.tapToPlacePin}
             </span>
             <button
               disabled={!selectedGuess}
               onClick={handleLockIn}
-              className={`px-6 py-3.5 btn-sleek text-xs font-black uppercase tracking-widest ${selectedGuess ? 'btn-sleek-pine !bg-[#2d4239]' : 'bg-black/5 text-[#0f1a16]/20 cursor-not-allowed shadow-none'}`}
+              className={`px-6 py-3.5 btn-sleek text-xs font-black uppercase tracking-widest shrink-0 ${selectedGuess ? 'btn-sleek-pine !bg-[#2d4239]' : 'bg-black/5 text-[#0f1a16]/20 cursor-not-allowed shadow-none'}`}
             >
               {strings.game.submitGuess}
             </button>
           </div>
         ) : (
           <div className="flex-1 min-h-0 flex flex-col bg-[#f9fbfa] overflow-hidden">
-            {/* Accuracy & Pin Toggle Bar */}
-            <div className="p-4 sm:p-5 bg-white border-y border-black/5 flex flex-wrap items-center justify-between gap-3 shrink-0">
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-[#8c6b4f]">{strings.game.accuracyLabel}</span>
-                <div className="flex items-baseline gap-2">
-                  <p className="text-xl sm:text-2xl font-black uppercase tracking-tight text-[#2d4239]">
-                    {strings.game.offDistance(formatDistance(currentDistance))}
-                  </p>
-                  {totalSpotPlayers > 1 && (
-                    <span className="text-xs font-black px-2 py-0.5 rounded-full bg-[#2d4239]/10 text-[#2d4239]">
-                      #{viewerRank} / {totalSpotPlayers}
-                    </span>
-                  )}
-                </div>
+            {/* Standings Subheader Bar */}
+            <div className="px-4 py-2 bg-white border-y border-black/5 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center space-x-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-[#0f1a16]/60">
+                  {strings.game.scoreboardTitle || strings.leaderboard.title}
+                </span>
+                {totalSpotPlayers > 1 && (
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-[#2d4239]/10 text-[#2d4239]">
+                    #{viewerRank} / {totalSpotPlayers}
+                  </span>
+                )}
               </div>
-
-              {/* Toggle: Top 3 vs All Pins */}
-              {spotLeaderboard.length > 3 && (
-                <button
-                  onClick={() => setShowAllPins(!showAllPins)}
-                  className="px-3.5 py-2 rounded-xl bg-[#f9fbfa] hover:bg-black/5 border border-black/5 text-[#0f1a16] font-bold text-[11px] uppercase tracking-wider transition-all flex items-center gap-1.5"
-                >
-                  <span>📍</span>
-                  <span>{showAllPins ? strings.leaderboard.allPinsShown : strings.leaderboard.top3Pins}</span>
-                </button>
-              )}
             </div>
 
             {/* Spot Standings List */}
-            <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 space-y-2.5 scroll-smooth-touch">
-              <div className="text-[10px] font-black uppercase tracking-widest text-[#0f1a16]/40 mb-1">
-                {strings.leaderboard.spotSiteLabel(currentIndex + 1)} · {strings.leaderboard.title}
-              </div>
-
+            <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 py-2 space-y-1.5 scroll-smooth-touch">
               {spotLeaderboard.map((item, rankIdx) => {
                 const isViewer = item.isViewer;
-                const isTop3 = rankIdx < 3;
                 return (
                   <div
                     key={item.id}
-                    className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${
+                    ref={isViewer ? viewerRowRef : null}
+                    className={`flex items-center justify-between px-3 py-2 rounded-xl border transition-all ${
                       isViewer 
-                        ? 'bg-[#2d4239]/5 border-[#2d4239]/20 shadow-sm' 
+                        ? 'bg-[#2d4239]/10 border-[#2d4239]/30 shadow-sm ring-1 ring-[#2d4239]/20' 
                         : 'bg-white border-black/5 shadow-sm'
                     }`}
                   >
-                    <div className="flex items-center space-x-3 min-w-0">
-                      <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0 ${
+                    <div className="flex items-center space-x-2.5 min-w-0">
+                      <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black shrink-0 ${
                         rankIdx === 0 
                           ? 'bg-amber-400 text-amber-950 shadow-sm' 
                           : rankIdx === 1 
@@ -511,15 +509,15 @@ export const SoloPlay: React.FC<SoloPlayProps> = ({
                         {rankIdx + 1}
                       </div>
 
-                      <div className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: item.color }} />
+                      <div className="w-3 h-3 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: item.color }} />
 
                       <span className={`text-xs font-black uppercase truncate ${isViewer ? 'text-[#2d4239]' : 'text-[#0f1a16]'}`}>
-                        {item.name} {isViewer && `(${strings.leaderboard.youBadge})`}
+                        {item.name} {isViewer && `(${strings.leaderboard.youBadge || 'Du'})`}
                       </span>
                     </div>
 
-                    <div className="text-right shrink-0">
-                      <span className="text-xs font-bold text-[#8c6b4f] tracking-tight">
+                    <div className="text-right shrink-0 ml-2">
+                      <span className={`text-xs font-bold tracking-tight ${isViewer ? 'text-[#2d4239]' : 'text-[#8c6b4f]'}`}>
                         {formatDistance(item.distanceKm)}
                       </span>
                     </div>
@@ -529,11 +527,11 @@ export const SoloPlay: React.FC<SoloPlayProps> = ({
             </div>
 
             {/* Advance Button Footer */}
-            <div className="p-4 sm:p-5 bg-white border-t border-black/5 flex justify-end shrink-0">
+            <div className="p-3 sm:p-4 bg-white border-t border-black/5 flex justify-end shrink-0">
               <button
                 disabled={isSaving}
                 onClick={handleNextSpot}
-                className="w-full sm:w-auto px-8 py-3.5 btn-sleek btn-sleek-pine !bg-[#2d4239] text-xs font-black uppercase tracking-widest shadow-xl flex items-center justify-center space-x-2"
+                className="w-full py-3.5 btn-sleek btn-sleek-pine !bg-[#2d4239] text-xs font-black uppercase tracking-widest shadow-xl flex items-center justify-center space-x-2"
               >
                 {isSaving ? (
                   <span>{strings.common.saving}</span>
@@ -548,7 +546,20 @@ export const SoloPlay: React.FC<SoloPlayProps> = ({
       </div>
 
       {/* Right Column: Interactive Map */}
-      <div className="w-full md:w-1/2 h-[50vh] md:h-full relative bg-[#e5e7eb]">
+      <div className={`w-full md:w-1/2 relative bg-[#e5e7eb] transition-all duration-300 ${isLockedIn ? 'h-[42vh] md:h-full' : 'h-[50vh] md:h-full'}`}>
+        {/* Floating Toggle on Map for Top 3 vs All Guesses */}
+        {isLockedIn && spotLeaderboard.length > 3 && (
+          <div className="absolute top-3 left-3 z-[1000] pointer-events-auto">
+            <button
+              onClick={() => setShowAllPins(!showAllPins)}
+              className="px-2.5 py-1.5 rounded-xl bg-white/95 hover:bg-white text-[#0f1a16] shadow-lg border border-[#2d4239]/15 backdrop-blur-md font-black text-[10px] uppercase tracking-wider transition-all flex items-center gap-1.5 active:scale-95 select-none"
+              title={showAllPins ? strings.leaderboard.allPinsShown : strings.leaderboard.top3Pins}
+            >
+              <span className="w-2 h-2 rounded-full border-2 border-[#2d4239] bg-[#2d4239] inline-block shrink-0"></span>
+              <span>{showAllPins ? strings.leaderboard.allPinsShown : strings.leaderboard.top3Pins}</span>
+            </button>
+          </div>
+        )}
         <Map
           onLocationSelect={isLockedIn ? undefined : (loc) => setSelectedGuess(loc)}
           markers={markers}
