@@ -5,6 +5,7 @@ import { strings } from '../i18n';
 import Map from './Map';
 import ImageOverlay from './ImageOverlay';
 import { TrailShareModal } from './TrailShareModal';
+import { HowToPlayModal } from './HowToPlayModal';
 import { loadTrailRuns, calculateLeaderboard } from '../lib/trailRuns';
 
 interface TrailLeaderboardProps {
@@ -30,6 +31,7 @@ const TrailLeaderboard: React.FC<TrailLeaderboardProps> = ({
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [showAllPins, setShowAllPins] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
 
   // Load runs on mount
   useEffect(() => {
@@ -63,6 +65,7 @@ const TrailLeaderboard: React.FC<TrailLeaderboardProps> = ({
   // Current viewer run
   const activeUserRunId = currentRunId || localStorage.getItem(`locateit_last_run_${trail.id}`);
   const userRanking = rankings.find(r => r.run.id === activeUserRunId);
+  const activeUserRun = userRanking?.run || runs.find(r => r.id === activeUserRunId);
 
   // Map view config
   const mapConfig = useMemo(() => {
@@ -106,16 +109,41 @@ const TrailLeaderboard: React.FC<TrailLeaderboardProps> = ({
   // Dynamic Markers
   const markers = useMemo(() => {
     if (selectedSpotIndex === 'OVERALL') {
-      // Show target icons for all spots
-      return trail.questions.map((q, idx) => ({
-        position: q.location,
-        label: q.title || strings.creator.spotPlaceholder(idx + 1),
-        icon: 'target' as const
-      }));
+      const allMarkers: { position: Location; label?: string; icon?: 'default' | 'target' | 'user'; color?: string }[] = [];
+
+      // 1. Target spots for all questions in the trail
+      trail.questions.forEach((q, idx) => {
+        if (isValidLoc(q.location)) {
+          allMarkers.push({
+            position: q.location,
+            label: `${idx + 1}. ${q.title || strings.creator.spotPlaceholder(idx + 1)}`,
+            icon: 'target' as const
+          });
+        }
+      });
+
+      // 2. The active player's guesses for each spot (omit other players on overall view to avoid clutter)
+      if (activeUserRun?.guesses) {
+        activeUserRun.guesses.forEach((g) => {
+          if (g.guess && isValidLoc(g.guess)) {
+            const spotNum = g.questionIndex + 1;
+            allMarkers.push({
+              position: g.guess,
+              label: `${strings.game.yourGuess} (${strings.creator.spotPlaceholder(spotNum)}: ${formatDistance(g.distanceKm)})`,
+              icon: 'user' as const,
+              color: activeUserRun.playerColor || '#2d4239'
+            });
+          }
+        });
+      }
+
+      return allMarkers;
     }
 
     const currentQ = trail.questions[selectedSpotIndex];
-    const spotList = spotRankings.filter(s => s.guess);
+    if (!currentQ || !isValidLoc(currentQ.location)) return [];
+
+    const spotList = spotRankings.filter(s => s.guess && isValidLoc(s.guess));
     const targetMarker = {
       position: currentQ.location,
       label: strings.leaderboard.actualSpotLabel,
@@ -132,24 +160,38 @@ const TrailLeaderboard: React.FC<TrailLeaderboardProps> = ({
       displayedRuns.push(userSpotItem);
     }
 
-    const playerMarkers = displayedRuns.map((s, idx) => {
+    const playerMarkers = displayedRuns.map((s) => {
       const isViewer = s.run.id === activeUserRunId;
       return {
         position: s.guess!,
-        label: `${s.run.playerName} (${formatDistance(s.distanceKm)})`,
-        icon: 'user' as const,
+        label: isViewer 
+          ? `${strings.game.yourGuess} (${formatDistance(s.distanceKm)})`
+          : `${s.run.playerName} (${formatDistance(s.distanceKm)})`,
+        icon: (isViewer ? 'user' : 'default') as 'user' | 'default',
         color: s.run.playerColor
       };
     });
 
     return [targetMarker, ...playerMarkers];
-  }, [selectedSpotIndex, trail.questions, spotRankings, showAllPins, activeUserRunId]);
+  }, [selectedSpotIndex, trail.questions, spotRankings, showAllPins, activeUserRunId, activeUserRun]);
 
   // Lines on map
   const lines = useMemo(() => {
-    if (selectedSpotIndex === 'OVERALL') return [];
+    if (selectedSpotIndex === 'OVERALL') {
+      if (!activeUserRun?.guesses) return [];
+      return activeUserRun.guesses
+        .filter(g => g.guess && isValidLoc(g.guess) && trail.questions[g.questionIndex] && isValidLoc(trail.questions[g.questionIndex].location))
+        .map(g => ({
+          from: g.guess!,
+          to: trail.questions[g.questionIndex].location,
+          color: activeUserRun.playerColor || '#2d4239'
+        }));
+    }
+
     const currentQ = trail.questions[selectedSpotIndex];
-    const spotList = spotRankings.filter(s => s.guess);
+    if (!currentQ || !isValidLoc(currentQ.location)) return [];
+
+    const spotList = spotRankings.filter(s => s.guess && isValidLoc(s.guess));
     const displayedRuns = showAllPins ? spotList : spotList.slice(0, 3);
 
     const userSpotItem = spotList.find(s => s.run.id === activeUserRunId);
@@ -162,10 +204,14 @@ const TrailLeaderboard: React.FC<TrailLeaderboardProps> = ({
       to: currentQ.location,
       color: s.run.playerColor
     }));
-  }, [selectedSpotIndex, trail.questions, spotRankings, showAllPins, activeUserRunId]);
+  }, [selectedSpotIndex, trail.questions, spotRankings, showAllPins, activeUserRunId, activeUserRun]);
 
   return (
     <div className="h-screen w-screen flex flex-col md:flex-row bg-[#f9fbfa] text-[#0f1a16] overflow-hidden select-none font-sans relative">
+      {showHowToPlay && (
+        <HowToPlayModal onClose={() => setShowHowToPlay(false)} />
+      )}
+
       {fullscreenImage && (
         <ImageOverlay 
           imageUrl={fullscreenImage} 
@@ -178,7 +224,6 @@ const TrailLeaderboard: React.FC<TrailLeaderboardProps> = ({
         <TrailShareModal 
           trail={trail}
           onClose={() => setShowShareModal(false)}
-          onPlaySolo={onPlayAgain}
         />
       )}
 
@@ -207,17 +252,18 @@ const TrailLeaderboard: React.FC<TrailLeaderboardProps> = ({
           </div>
           <div className="flex items-center space-x-1.5 shrink-0">
             <button 
+              onClick={() => setShowHowToPlay(true)}
+              className="p-2 rounded-xl bg-black/5 hover:bg-black/10 text-[#0f1a16]/60 hover:text-[#0f1a16] transition-all shadow-xs flex items-center justify-center"
+              title={strings.howToPlay.buttonLabel}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </button>
+            <button 
               onClick={() => setShowShareModal(true)}
-              className="p-2 rounded-xl bg-black/5 hover:bg-black/10 text-[#2d4239] transition-all shadow-sm flex items-center gap-1"
+              className="p-2 rounded-xl bg-black/5 hover:bg-black/10 text-[#2d4239] transition-all shadow-xs flex items-center gap-1"
               title={strings.leaderboard.shareBtnTooltip}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
-            </button>
-            <button 
-              onClick={onPlayAgain}
-              className="px-3.5 py-1.5 bg-[#2d4239] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#1f2e27] transition-all shadow-md active:scale-95"
-            >
-              {strings.leaderboard.playTrailBtn}
             </button>
           </div>
         </header>

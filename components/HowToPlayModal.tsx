@@ -16,7 +16,7 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[6000] bg-[#0f1a16]/50 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[99999] bg-[#0f1a16]/50 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
       <div 
         className="bg-white border border-black/5 rounded-[2.5rem] w-full max-w-lg shadow-[0_25px_60px_-15px_rgba(15,26,22,0.3)] flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200 relative text-[#0f1a16]"
         onClick={(e) => e.stopPropagation()}

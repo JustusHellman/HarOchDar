@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { SwapTLogo, FlyingWordsBackground } from './Branding';
 import { LanguageToggle } from './LanguageToggle';
+import { HowToPlayModal } from './HowToPlayModal';
 import { useLanguage } from '../i18n';
 
 interface HomeProps {
@@ -10,11 +11,22 @@ interface HomeProps {
 
 const Home: React.FC<HomeProps> = ({ onJoin, onDesign }) => {
   const { strings } = useLanguage();
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
 
   return (
     <div className="h-screen bg-[#f9fbfa] text-[#0f1a16] overflow-hidden flex flex-col relative selection:bg-[#8c6b4f]/20">
       <FlyingWordsBackground />
-      <div className="fixed top-5 right-5 sm:top-6 sm:right-6 z-50">
+      {showHowToPlay && (
+        <HowToPlayModal onClose={() => setShowHowToPlay(false)} />
+      )}
+      <div className="fixed top-5 right-5 sm:top-6 sm:right-6 z-50 flex items-center space-x-2">
+        <button
+          onClick={() => setShowHowToPlay(true)}
+          className="p-2.5 rounded-2xl bg-white/80 hover:bg-white text-[#0f1a16]/70 hover:text-[#0f1a16] backdrop-blur-md border border-black/5 shadow-sm transition-all hover:scale-105 active:scale-95 flex items-center justify-center"
+          title={strings.howToPlay.buttonLabel}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        </button>
         <LanguageToggle />
       </div>
       <div className="fixed -top-80 -left-60 w-[1000px] h-[1000px] bg-[#2d4239]/5 blur-[180px] rounded-full pointer-events-none"></div>
