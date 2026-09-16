@@ -13,17 +13,17 @@ interface JoinGameProps {
 }
 
 const availableColors = [
+  '#2563eb', // Royal Blue (Default)
+  '#10b981', // Vibrant Emerald Green
+  '#0d9488', // Teal
   '#2d4239', // Forest Pine
   '#6366f1', // Indigo
-  '#0d9488', // Teal
-  '#10b981', // Emerald
   '#f59e0b', // Amber
-  '#06b6d4', // Cyan
-  '#d946ef', // Fuchsia
-  '#111827', // Black
   '#f97316', // Orange
   '#ec4899', // Pink
-  '#65a30d', // Lime
+  '#d946ef', // Fuchsia
+  '#06b6d4', // Cyan
+  '#111827', // Black
 ];
 
 const JoinGame: React.FC<JoinGameProps> = ({ 
@@ -36,7 +36,6 @@ const JoinGame: React.FC<JoinGameProps> = ({
   prefilledCode 
 }) => {
   const { strings } = useLanguage();
-  const isCodeLocked = Boolean(prefilledCode && prefilledCode.trim().length > 0);
   const [code, setCode] = useState(prefilledCode || '');
   
   const [name, setName] = useState(() => {
@@ -77,6 +76,18 @@ const JoinGame: React.FC<JoinGameProps> = ({
   });
 
   const colorInputRef = useRef<HTMLInputElement>(null);
+  const codeInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // If a code is already populated (via link, QR or prefill), focus name; otherwise focus code
+    const hasInitialCode = Boolean(prefilledCode?.trim() || code.trim());
+    if (hasInitialCode) {
+      nameInputRef.current?.focus();
+    } else {
+      codeInputRef.current?.focus();
+    }
+  }, []);
 
   useEffect(() => {
     if (prefilledCode) {
@@ -151,43 +162,38 @@ const JoinGame: React.FC<JoinGameProps> = ({
                 <label className="text-[11px] font-black text-[#2d4239] uppercase tracking-[0.2em]">
                   {strings.join.codeLabel}
                 </label>
-                {isCodeLocked && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#2d4239]/10 text-[#2d4239] text-[9px] font-black uppercase tracking-wider border border-[#2d4239]/15">
-                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                    {strings.join.linkedFromUrl}
+                {isOpenTrail && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#8c6b4f]/10 text-[#8c6b4f] text-[9px] font-black uppercase tracking-wider border border-[#8c6b4f]/15">
+                    Open Trail
                   </span>
                 )}
               </div>
 
               <div className="relative">
                 <input 
+                  ref={codeInputRef}
                   value={code}
-                  disabled={isCodeLocked}
-                  readOnly={isCodeLocked}
                   onChange={(e) => setCode(e.target.value)}
                   placeholder={strings.join.codeOrTrailPlaceholder} 
-                  className={`w-full px-6 py-4 rounded-2xl outline-none font-mono uppercase font-black text-center tracking-[0.2em] text-lg transition-all ${
-                    isCodeLocked 
-                      ? 'bg-[#eef2f0] border border-[#2d4239]/20 text-[#0f1a16] cursor-default' 
-                      : 'bg-[#f4f7f6] focus:bg-white border border-black/10 focus:border-[#2d4239] text-[#0f1a16] placeholder:text-[#0f1a16]/30 focus:ring-4 focus:ring-[#2d4239]/10'
-                  }`}
+                  autoFocus={!prefilledCode && !code.trim()}
+                  className="w-full px-6 py-4 rounded-2xl outline-none font-mono uppercase font-black text-center tracking-[0.2em] text-lg transition-all bg-[#f4f7f6] focus:bg-white border border-black/10 focus:border-[#2d4239] text-[#0f1a16] placeholder:text-[#0f1a16]/30 focus:ring-4 focus:ring-[#2d4239]/10"
                 />
                 {isSearching && (
                   <div className="absolute top-1/2 -translate-y-1/2 right-5">
                     <div className="w-2.5 h-2.5 rounded-full bg-[#8c6b4f] animate-ping"></div>
                   </div>
                 )}
+                {code.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setCode('')}
+                    className="absolute top-1/2 -translate-y-1/2 right-3 p-1.5 rounded-xl hover:bg-black/5 text-[#0f1a16]/40 hover:text-[#0f1a16] transition-colors"
+                    title="Clear code"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                )}
               </div>
-              {isCodeLocked && (
-                <p className="text-[10px] font-bold text-[#2d4239]/70 px-1 mt-1.5 flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5 text-[#2d4239]/80 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                  </svg>
-                  {strings.join.codeLockedNotice}
-                </p>
-              )}
             </div>
 
             {/* Field 2: Player Name */}
@@ -201,10 +207,11 @@ const JoinGame: React.FC<JoinGameProps> = ({
                 </span>
               </div>
               <input 
+                ref={nameInputRef}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={strings.join.namePlaceholder} 
-                autoFocus={isCodeLocked && !name}
+                autoFocus={Boolean(prefilledCode?.trim() || code.trim())}
                 className="w-full px-6 py-4 bg-[#f4f7f6] focus:bg-white border border-black/10 focus:border-[#2d4239] rounded-2xl outline-none focus:ring-4 focus:ring-[#2d4239]/10 text-[#0f1a16] font-bold placeholder:text-[#0f1a16]/30 text-base transition-all" 
               />
             </div>

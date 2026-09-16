@@ -47,13 +47,13 @@ export const useTrails = (user: User | null) => {
     } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
-    if (user) {
+    if (user?.id) {
       loadTrails();
     }
-  }, [loadTrails, user]);
+  }, [loadTrails, user?.id]);
 
   const saveTrail = async (questions: Question[], name: string, startingView?: { center: Location, zoom: number }, editingId?: string): Promise<{ success: boolean; id?: string; error?: string }> => {
     if (!isSupabaseConfigured) return { success: false, error: "Supabase not configured" };

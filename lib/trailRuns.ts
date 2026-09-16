@@ -99,6 +99,76 @@ export async function saveTrailRun(runData: {
   return { success: true, run: newRun };
 }
 
+export async function saveTrailRunsBatch(trailId: string, runsData: {
+  playerName: string;
+  playerColor: string;
+  totalDistanceKm: number;
+  totalScore: number;
+  guesses: SpotGuess[];
+}[]): Promise<{ success: boolean; runs: TrailRun[] }> {
+  if (!runsData || runsData.length === 0) return { success: true, runs: [] };
+
+  const newRuns: TrailRun[] = runsData.map(r => ({
+    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `run_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    trailId,
+    playerName: (r.playerName || 'Explorer').trim(),
+    playerColor: r.playerColor || '#2563eb',
+    totalDistanceKm: r.totalDistanceKm || 0,
+    totalScore: r.totalScore || 0,
+    guesses: r.guesses || [],
+    createdAt: new Date().toISOString()
+  }));
+
+  if (isSupabaseConfigured) {
+    try {
+      const recordsToInsert = newRuns.map(nr => ({
+        trail_id: trailId,
+        player_name: nr.playerName,
+        player_color: nr.playerColor,
+        total_distance_km: nr.totalDistanceKm,
+        total_score: nr.totalScore,
+        guesses: nr.guesses
+      }));
+
+      const { data, error } = await supabase
+        .from('trail_runs')
+        .insert(recordsToInsert)
+        .select();
+
+      if (!error && data && data.length > 0) {
+        data.forEach((d: any, idx: number) => {
+          if (newRuns[idx]) {
+            newRuns[idx].id = d.id;
+            newRuns[idx].createdAt = d.created_at;
+          }
+        });
+      } else if (error) {
+        console.warn("Supabase batch save error (falling back to local cache):", error.message);
+      }
+    } catch (err) {
+      console.warn("Network error batch inserting trail runs:", err);
+    }
+  }
+
+  // Update local storage
+  try {
+    const key = `${LOCAL_STORAGE_RUNS_PREFIX}${trailId}`;
+    const existing = JSON.parse(localStorage.getItem(key) || '[]') as TrailRun[];
+    const existingIds = new Set(existing.map(e => e.id));
+    const merged = [...existing];
+    for (const nr of newRuns) {
+      if (!existingIds.has(nr.id)) {
+        merged.push(nr);
+      }
+    }
+    localStorage.setItem(key, JSON.stringify(merged));
+  } catch (e) {
+    console.warn("Could not save batch runs to local storage:", e);
+  }
+
+  return { success: true, runs: newRuns };
+}
+
 /**
  * Loads all completed runs for a given trail from Supabase, merged with local runs.
  */

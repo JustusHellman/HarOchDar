@@ -18,11 +18,42 @@ import TrailLeaderboard from './components/TrailLeaderboard';
 import { PermissionModal } from './components/PermissionGate';
 import { HowToPlayModal } from './components/HowToPlayModal';
 import { clearDraft } from './lib/draftStorage';
-import { hasCompletedTrail, saveTrailRun } from './lib/trailRuns';
+import { hasCompletedTrail, saveTrailRun, saveTrailRunsBatch } from './lib/trailRuns';
 
 const fetchTrailByCode = async (searchCode: string): Promise<Trail | null> => {
   try {
     const rawClean = searchCode.trim();
+    if (!rawClean) return null;
+
+    // Fast path: direct UUID lookup if it looks like a standard UUID
+    if (/^[0-9a-fA-F-]{32,36}$/.test(rawClean)) {
+      const { data: directData } = await supabase
+        .from('trails')
+        .select('*, questions (*)')
+        .eq('id', rawClean)
+        .maybeSingle();
+
+      if (directData) {
+        return {
+          id: directData.id,
+          name: directData.name,
+          creatorId: directData.creator_id,
+          lastUpdated: new Date(directData.created_at || Date.now()).getTime(),
+          startingView: directData.starting_view,
+          questions: (directData.questions || [])
+            .sort((a: any, b: any) => (a.position_order || 0) - (b.position_order || 0))
+            .map((q: any) => ({
+              id: q.id,
+              imageUrl: q.image_url,
+              location: q.location,
+              title: q.title,
+              locationSource: q.location_source,
+              trailId: q.trail_id
+            }))
+        };
+      }
+    }
+
     const { data, error } = await supabase
       .from('trails')
       .select('*, questions (*)')
@@ -43,6 +74,7 @@ const fetchTrailByCode = async (searchCode: string): Promise<Trail | null> => {
         otCode === input ||
         otCodeNoHyphen === inputNoHyphen ||
         shortId === inputNoHyphen ||
+        input.includes(t.id.toLowerCase()) ||
         (inputNoHyphen.length >= 6 && inputNoHyphen.endsWith(shortId))
       );
     });
@@ -143,6 +175,27 @@ const App: React.FC = () => {
   const { trails, saveTrail, deleteTrail, isLoading: isTrailsLoading } = useTrails(user);
   const [gameState, dispatch] = useReducer(gameReducer, null);
 
+  const selectedSoloTrailRef = useRef(selectedSoloTrail);
+  selectedSoloTrailRef.current = selectedSoloTrail;
+
+  const joinCodeRef = useRef(joinCode);
+  joinCodeRef.current = joinCode;
+
+  const activeLeaderboardRunIdRef = useRef(activeLeaderboardRunId);
+  activeLeaderboardRunIdRef.current = activeLeaderboardRunId;
+
+  const userRef = useRef(user);
+  userRef.current = user;
+
+  const currentPlayerRef = useRef(currentPlayer);
+  currentPlayerRef.current = currentPlayer;
+
+  const isHostRef = useRef(isHost);
+  isHostRef.current = isHost;
+
+  const hasRestoredSessionRef = useRef(false);
+  const hasInitializedAuthRef = useRef(false);
+
   // Centralized Navigation helper with Browser History Synchronization
   const navigateTo = useCallback((targetView: AppView, options?: {
     trail?: Trail | null;
@@ -153,9 +206,9 @@ const App: React.FC = () => {
     replace?: boolean;
     skipHistory?: boolean;
   }) => {
-    const activeTrailId = options?.trailId || options?.trail?.id || selectedSoloTrail?.id;
-    const activeCode = options?.code || joinCode || undefined;
-    const activeRunId = options?.runId || activeLeaderboardRunId || undefined;
+    const activeTrailId = options?.trailId || options?.trail?.id || selectedSoloTrailRef.current?.id;
+    const activeCode = options?.code ?? joinCodeRef.current ?? undefined;
+    const activeRunId = options?.runId ?? activeLeaderboardRunIdRef.current ?? undefined;
 
     if (options?.trail !== undefined) setSelectedSoloTrail(options.trail);
     if (options?.code !== undefined) setJoinCode(options.code);
@@ -178,7 +231,7 @@ const App: React.FC = () => {
         console.error("History navigation error:", err);
       }
     }
-  }, [selectedSoloTrail?.id, joinCode, activeLeaderboardRunId]);
+  }, []);
 
   // Sync view with game status (for both host and players)
   useEffect(() => {
@@ -194,8 +247,8 @@ const App: React.FC = () => {
   // handleExitGame is defined here and uses sendActionRef to avoid "used before declaration" error
   const handleExitGame = useCallback((silent = false, targetView?: AppView) => {
     // 1. Snapshot the player identity and host status before clearing
-    const pId = currentPlayer?.id;
-    const wasHost = isHost;
+    const pId = currentPlayerRef.current?.id;
+    const wasHost = isHostRef.current;
 
     // 2. Clear state immediately to stop watchers and callbacks
     if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
@@ -228,9 +281,9 @@ const App: React.FC = () => {
     dispatch({ type: 'EXIT_GAME' });
     
     // 6. Safely route back:
-    const nextView = targetView || (wasHost && user ? 'DASHBOARD' : 'HOME');
+    const nextView = targetView || (wasHost && userRef.current ? 'DASHBOARD' : 'HOME');
     navigateTo(nextView, { replace: true });
-  }, [isHost, currentPlayer, user, navigateTo]);
+  }, [navigateTo]);
 
   const { broadcast, sendAction, requestSync, clearCache } = useGameSync(
     useCallback((state) => dispatch({ type: 'SYNC_STATE', payload: state }), []),
@@ -343,6 +396,9 @@ const App: React.FC = () => {
 
   // Initial URL & Session Restoration (Deep links & Refresh Support)
   useEffect(() => {
+    if (hasRestoredSessionRef.current) return;
+    hasRestoredSessionRef.current = true;
+
     const restoreSession = async () => {
       const params = new URLSearchParams(window.location.search);
       const codeFromUrl = params.get('join');
@@ -350,11 +406,16 @@ const App: React.FC = () => {
 
       if (codeFromUrl) {
         const cleanCode = codeFromUrl.trim().toUpperCase();
+        // Clean URL query parameter so address bar doesn't have duplicate codes
+        try {
+          window.history.replaceState(null, '', window.location.pathname + `#join?code=${cleanCode}`);
+        } catch {}
+
         if (cleanCode.startsWith('OT')) {
           const trail = await fetchTrailByCode(cleanCode);
           if (trail) {
             const savedName = localStorage.getItem('locateit_player_name');
-            const savedColor = localStorage.getItem('locateit_player_color') || '#6366f1';
+            const savedColor = localStorage.getItem('locateit_player_color') || '#2563eb';
             if (hasCompletedTrail(trail.id)) {
               handleOpenLeaderboard(trail);
             } else if (savedName) {
@@ -371,13 +432,18 @@ const App: React.FC = () => {
         return;
       } else if (soloTrailIdFromUrl) {
         const soloCode = soloTrailIdFromUrl.trim();
+        // Clean URL query parameter so address bar doesn't have duplicate codes
+        try {
+          window.history.replaceState(null, '', window.location.pathname + `#solo?trailId=${encodeURIComponent(soloCode)}`);
+        } catch {}
+
         const trail = await fetchTrailByCode(soloCode);
         if (trail) {
           if (hasCompletedTrail(trail.id)) {
             handleOpenLeaderboard(trail);
           } else {
             const savedName = localStorage.getItem('locateit_player_name');
-            const savedColor = localStorage.getItem('locateit_player_color') || '#6366f1';
+            const savedColor = localStorage.getItem('locateit_player_color') || '#2563eb';
             if (savedName) {
               handleStartSoloPlay(trail, savedName, savedColor);
             } else {
@@ -399,7 +465,7 @@ const App: React.FC = () => {
         const trail = await fetchTrailByCode(parsed.trailId);
         if (trail) {
           const savedName = localStorage.getItem('locateit_player_name') || 'Explorer';
-          const savedColor = localStorage.getItem('locateit_player_color') || '#2d4239';
+          const savedColor = localStorage.getItem('locateit_player_color') || '#2563eb';
           setSelectedSoloTrail(trail);
           setSoloPlayerInfo({ name: savedName, color: savedColor });
           setView('SOLO_PLAY');
@@ -430,7 +496,7 @@ const App: React.FC = () => {
     };
 
     restoreSession();
-  }, [handleOpenLeaderboard, handleStartSoloPlay, navigateTo]);
+  }, []);
 
   // Host: Broadcast changes
   useEffect(() => {
@@ -472,26 +538,27 @@ const App: React.FC = () => {
         hasSavedFinishedRunsRef.current = gameState.id;
         const trailId = gameState.trailId;
 
-        // If host, save runs for all players who completed guesses
+        // If host, save runs in batch for all players who have guesses
         if (isHost) {
-          gameState.players.forEach(p => {
-            if (p.name && Array.isArray(p.guesses) && p.guesses.length > 0) {
-              const totalDistanceKm = p.guesses.reduce((acc, g) => acc + (g.distanceKm || 0), 0);
-              saveTrailRun({
-                trailId,
-                playerName: p.name,
-                playerColor: p.color,
-                totalDistanceKm,
-                totalScore: p.score || 0,
-                guesses: p.guesses,
-                isSolo: false
-              }).catch(err => {
-                console.warn("Could not save live trail run:", err);
-              });
-            }
-          });
+          const runsToSave = gameState.players
+            .filter((p): p is typeof p & { guesses: NonNullable<typeof p.guesses> } => 
+              Boolean(p.name && Array.isArray(p.guesses) && p.guesses.length > 0)
+            )
+            .map(p => ({
+              playerName: p.name,
+              playerColor: p.color,
+              totalDistanceKm: (p.guesses || []).reduce((acc, g) => acc + (g.distanceKm || 0), 0),
+              totalScore: p.score || 0,
+              guesses: p.guesses || []
+            }));
+
+          if (runsToSave.length > 0) {
+            saveTrailRunsBatch(trailId, runsToSave).catch(err => {
+              console.warn("Could not save live trail runs batch:", err);
+            });
+          }
         } else if (currentPlayer) {
-          // If player on their own device, save their own run to cache their placement locally
+          // If player on their own device, cache their own run locally and note run ID
           const myPlayer = gameState.players.find(p => p.id === currentPlayer.id) || currentPlayer;
           if (myPlayer.name && Array.isArray(myPlayer.guesses) && myPlayer.guesses.length > 0) {
             const totalDistanceKm = myPlayer.guesses.reduce((acc, g) => acc + (g.distanceKm || 0), 0);
@@ -501,7 +568,12 @@ const App: React.FC = () => {
               playerColor: myPlayer.color,
               totalDistanceKm,
               totalScore: myPlayer.score || 0,
-              guesses: myPlayer.guesses
+              guesses: myPlayer.guesses,
+              isSolo: false
+            }).then(res => {
+              if (res.run) {
+                localStorage.setItem(`locateit_last_run_${trailId}`, res.run.id);
+              }
             }).catch(err => {
               console.warn("Could not cache local live trail run:", err);
             });
@@ -554,6 +626,9 @@ const App: React.FC = () => {
 
   // User Authentication & Session Check
   useEffect(() => {
+    if (hasInitializedAuthRef.current) return;
+    hasInitializedAuthRef.current = true;
+
     const savedUser = localStorage.getItem('locateit_user');
     if (savedUser) {
       try {
@@ -861,10 +936,13 @@ const App: React.FC = () => {
             playerName={soloPlayerInfo.name} 
             playerColor={soloPlayerInfo.color} 
             onFinish={(run) => handleOpenLeaderboard(selectedSoloTrail, run.id)} 
-            onExit={() => navigateTo(user ? 'DASHBOARD' : 'HOME')} 
+            onExit={() => {
+              setJoinCode(null);
+              navigateTo(user ? 'DASHBOARD' : 'HOME', { replace: true });
+            }} 
           />
         ) : (
-          <Home onJoin={() => navigateTo('JOIN')} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
+          <Home onJoin={() => { setJoinCode(null); navigateTo('JOIN'); }} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
         )
       )}
       {view === 'LEADERBOARD' && (
@@ -872,11 +950,17 @@ const App: React.FC = () => {
           <TrailLeaderboard 
             trail={selectedSoloTrail} 
             currentRunId={activeLeaderboardRunId} 
-            onPlayAgain={() => { setJoinCode(selectedSoloTrail.id); navigateTo('JOIN', { code: selectedSoloTrail.id }); }} 
-            onExit={() => navigateTo(user ? 'DASHBOARD' : 'HOME')} 
+            onPlayAgain={() => { 
+              setJoinCode(null); 
+              navigateTo('JOIN', { code: getOpenTrailCode(selectedSoloTrail.id) }); 
+            }} 
+            onExit={() => {
+              setJoinCode(null);
+              navigateTo(user ? 'DASHBOARD' : 'HOME', { replace: true });
+            }} 
           />
         ) : (
-          <Home onJoin={() => navigateTo('JOIN')} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
+          <Home onJoin={() => { setJoinCode(null); navigateTo('JOIN'); }} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
         )
       )}
       {view === 'CREATE' && (
@@ -889,7 +973,7 @@ const App: React.FC = () => {
             isSaving={isSaving}
           />
         ) : (
-          <Home onJoin={() => navigateTo('JOIN')} onDesign={() => navigateTo('AUTH')} />
+          <Home onJoin={() => { setJoinCode(null); navigateTo('JOIN'); }} onDesign={() => navigateTo('AUTH')} />
         )
       )}
       {view === 'LOBBY' && (
@@ -906,7 +990,7 @@ const App: React.FC = () => {
             }} 
           />
         ) : (
-          <Home onJoin={() => navigateTo('JOIN')} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
+          <Home onJoin={() => { setJoinCode(null); navigateTo('JOIN'); }} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
         )
       )}
       {view === 'PLAYING' && (
@@ -942,14 +1026,31 @@ const App: React.FC = () => {
             onNext={() => isHost && dispatch({ type: 'NEXT_ROUND' })} 
             onExit={(targetView) => handleExitGame(false, targetView)}
             onViewLeaderboard={async (trailId) => {
-              const trail = await fetchTrailByCode(trailId);
+              let trail = await fetchTrailByCode(trailId);
+              if (!trail && gameState && gameState.questions && gameState.questions.length > 0) {
+                trail = {
+                  id: gameState.trailId || trailId,
+                  name: "Expedition Trail",
+                  creatorId: gameState.hostId,
+                  lastUpdated: Date.now(),
+                  startingView: gameState.startingView,
+                  questions: gameState.questions
+                };
+              }
               if (trail) {
-                handleOpenLeaderboard(trail);
+                const myPlayer = currentPlayer ? (gameState.players.find(p => p.id === currentPlayer.id) || currentPlayer) : null;
+                const savedRunId = myPlayer ? localStorage.getItem(`locateit_last_run_${trail.id}`) || undefined : undefined;
+                try {
+                  localStorage.removeItem('locateit_active_game_code');
+                  localStorage.removeItem('locateit_active_host_state');
+                } catch {}
+                setJoinCode(null);
+                handleOpenLeaderboard(trail, savedRunId);
               }
             }}
           />
         ) : (
-          <Home onJoin={() => navigateTo('JOIN')} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
+          <Home onJoin={() => { setJoinCode(null); navigateTo('JOIN'); }} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
         )
       )}
     </>
