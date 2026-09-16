@@ -1,8 +1,8 @@
-import { GameState, Player, Location, Question } from './types';
+import { GameState, Player, Location, Question, SpotGuess } from './types';
 
 export type GameAction = 
   | { type: 'SYNC_STATE'; payload: GameState }
-  | { type: 'INIT_LOBBY'; payload: { id: string, questions: Question[], hostId: string, startingView?: { center: Location, zoom: number } } }
+  | { type: 'INIT_LOBBY'; payload: { id: string, trailId?: string, questions: Question[], hostId: string, startingView?: { center: Location, zoom: number } } }
   | { type: 'JOIN_PLAYER'; payload: Player }
   | { type: 'KICK_PLAYER'; payload: string }
   | { type: 'SET_STATUS'; payload: GameState['status'] }
@@ -21,6 +21,7 @@ export const gameReducer = (state: GameState | null, action: GameAction): GameSt
     case 'INIT_LOBBY':
       return {
         id: action.payload.id,
+        trailId: action.payload.trailId,
         status: 'LOBBY',
         questions: action.payload.questions,
         currentQuestionIndex: 0,
@@ -44,34 +45,66 @@ export const gameReducer = (state: GameState | null, action: GameAction): GameSt
 
     case 'SUBMIT_GUESS':
       if (!state) return null;
-      const updatedPlayers = state.players.map(p => 
-        p.id === action.payload.playerId 
-          ? { ...p, hasGuessed: true, lastGuess: action.payload.guess, lastDistance: action.payload.distance } 
-          : p
-      );
+      const qIdx = state.currentQuestionIndex;
+      const newSpotGuess: SpotGuess = {
+        questionIndex: qIdx,
+        guess: action.payload.guess,
+        distanceKm: action.payload.distance
+      };
+      const updatedPlayers = state.players.map(p => {
+        if (p.id === action.payload.playerId) {
+          const prevGuesses = (p.guesses || []).filter(g => g.questionIndex !== qIdx);
+          return { 
+            ...p, 
+            hasGuessed: true, 
+            lastGuess: action.payload.guess, 
+            lastDistance: action.payload.distance,
+            guesses: [...prevGuesses, newSpotGuess]
+          };
+        }
+        return p;
+      });
       return { ...state, players: updatedPlayers };
 
     case 'UNLOCK_GUESS':
       if (!state) return null;
+      const unqIdx = state.currentQuestionIndex;
       return { 
         ...state, 
-        players: state.players.map(p => 
-          p.id === action.payload 
-            ? { ...p, hasGuessed: false, lastGuess: undefined, lastDistance: undefined } 
-            : p
-        )
+        players: state.players.map(p => {
+          if (p.id === action.payload) {
+            const filtered = (p.guesses || []).filter(g => g.questionIndex !== unqIdx);
+            return { ...p, hasGuessed: false, lastGuess: undefined, lastDistance: undefined, guesses: filtered };
+          }
+          return p;
+        })
       };
 
     case 'FORCE_REVEAL':
       if (!state) return null;
+      const fqIdx = state.currentQuestionIndex;
+      const currentTargetLoc = state.questions[fqIdx]?.location || { lat: 0, lng: 0 };
       return {
         ...state,
         status: 'COUNTDOWN',
-        players: state.players.map(p => 
-          !p.hasGuessed 
-            ? { ...p, hasGuessed: true, lastDistance: 20000, lastGuess: undefined } // Penalty: 20,000 km away
-            : p
-        )
+        players: state.players.map(p => {
+          if (!p.hasGuessed) {
+            const prevGuesses = (p.guesses || []).filter(g => g.questionIndex !== fqIdx);
+            const penaltySpotGuess: SpotGuess = {
+              questionIndex: fqIdx,
+              guess: currentTargetLoc,
+              distanceKm: 20000
+            };
+            return {
+              ...p,
+              hasGuessed: true,
+              lastDistance: 20000,
+              lastGuess: undefined,
+              guesses: [...prevGuesses, penaltySpotGuess]
+            };
+          }
+          return p;
+        })
       };
 
     case 'CALCULATE_SCORES':

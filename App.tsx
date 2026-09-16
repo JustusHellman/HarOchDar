@@ -18,7 +18,7 @@ import TrailLeaderboard from './components/TrailLeaderboard';
 import { PermissionModal } from './components/PermissionGate';
 import { HowToPlayModal } from './components/HowToPlayModal';
 import { clearDraft } from './lib/draftStorage';
-import { hasCompletedTrail } from './lib/trailRuns';
+import { hasCompletedTrail, saveTrailRun } from './lib/trailRuns';
 
 const fetchTrailByCode = async (searchCode: string): Promise<Trail | null> => {
   try {
@@ -453,7 +453,7 @@ const App: React.FC = () => {
     }
   }, [gameState, isHost, broadcast]);
 
-  // Clean up storage when game is finished
+  // Clean up storage and persist leaderboard runs when game is finished
   useEffect(() => {
     if (gameState?.status === 'FINISHED') {
       try {
@@ -465,8 +465,28 @@ const App: React.FC = () => {
       } catch {
         // ignore
       }
+
+      // Persist completed player runs to the trail leaderboard if trailId exists
+      if (gameState.trailId && Array.isArray(gameState.players)) {
+        const trailId = gameState.trailId;
+        gameState.players.forEach(p => {
+          if (p.name && Array.isArray(p.guesses) && p.guesses.length > 0) {
+            const totalDistanceKm = p.guesses.reduce((acc, g) => acc + (g.distanceKm || 0), 0);
+            saveTrailRun({
+              trailId,
+              playerName: p.name,
+              playerColor: p.color,
+              totalDistanceKm,
+              totalScore: p.score || 0,
+              guesses: p.guesses
+            }).catch(err => {
+              console.warn("Could not save live trail run:", err);
+            });
+          }
+        });
+      }
     }
-  }, [gameState?.status]);
+  }, [gameState?.status, gameState?.trailId, gameState?.players]);
 
   // Player: Sync loop when waiting for game data
   useEffect(() => {
@@ -612,7 +632,16 @@ const App: React.FC = () => {
     setIsHost(true);
     setCurrentPlayer(null); 
     const newGameId = `LT-${generateId()}`;
-    dispatch({ type: 'INIT_LOBBY', payload: { id: newGameId, questions: trail.questions, hostId: user.id, startingView: trail.startingView } });
+    dispatch({ 
+      type: 'INIT_LOBBY', 
+      payload: { 
+        id: newGameId, 
+        trailId: trail.id,
+        questions: trail.questions, 
+        hostId: user.id, 
+        startingView: trail.startingView 
+      } 
+    });
     setJoinCode(newGameId);
     navigateTo('LOBBY', { code: newGameId });
   };
@@ -887,6 +916,12 @@ const App: React.FC = () => {
             onShowScoreboard={() => isHost && dispatch({ type: 'CALCULATE_SCORES' })}
             onNext={() => isHost && dispatch({ type: 'NEXT_ROUND' })} 
             onExit={(targetView) => handleExitGame(false, targetView)}
+            onViewLeaderboard={async (trailId) => {
+              const trail = await fetchTrailByCode(trailId);
+              if (trail) {
+                handleOpenLeaderboard(trail);
+              }
+            }}
           />
         ) : (
           <Home onJoin={() => navigateTo('JOIN')} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />

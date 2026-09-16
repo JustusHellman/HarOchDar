@@ -36,10 +36,12 @@ export interface Player {
   lastDistance?: number;
   lastPointsGained?: number;
   hasGuessed: boolean;
+  guesses?: SpotGuess[];
 }
 
 export interface GameState {
   id: string;
+  trailId?: string;
   status: 'LOBBY' | 'PLAYING' | 'COUNTDOWN' | 'RESULTS' | 'SCOREBOARD' | 'FINISHED';
   questions: Question[];
   currentQuestionIndex: number;
