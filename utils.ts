@@ -13,8 +13,44 @@ export const calculateDistance = (loc1: Location, loc2: Location): number => {
 };
 
 export const formatDistance = (km: number): string => {
-  if (km < 1) return `${(km * 1000).toFixed(0)}m`;
-  return `${km.toFixed(2)}km`;
+  if (km === undefined || km === null || isNaN(km)) return '0 m';
+  if (km <= 0) return '0 m';
+
+  // If distance is less than 1 km, display in meters (m) with at least 3 value digits
+  if (km < 1) {
+    const m = km * 1000;
+    let formatted: string;
+
+    if (m >= 100) {
+      formatted = m.toFixed(0);
+    } else if (m >= 10) {
+      formatted = m.toFixed(1);
+    } else if (m >= 1) {
+      formatted = m.toFixed(2);
+    } else if (m >= 0.1) {
+      formatted = m.toFixed(3);
+    } else if (m >= 0.01) {
+      formatted = m.toFixed(4);
+    } else {
+      formatted = m.toFixed(5);
+    }
+
+    return `${formatted.replace('.', ',')} m`;
+  }
+
+  // If distance is 1 km or greater, display in kilometers (km) with at least 3 value digits
+  let formatted: string;
+
+  if (km >= 100) {
+    formatted = km.toFixed(0);
+  } else if (km >= 10) {
+    formatted = km.toFixed(1);
+  } else {
+    // 1 <= km < 10 -> 2 decimals (e.g. 1,23 km)
+    formatted = km.toFixed(2);
+  }
+
+  return `${formatted.replace('.', ',')} km`;
 };
 
 export const generateId = () => Math.random().toString(36).substr(2, 6).toUpperCase();
