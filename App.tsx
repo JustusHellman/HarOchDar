@@ -138,6 +138,7 @@ const App: React.FC = () => {
   const joinTimeoutRef = useRef<number | null>(null);
   const prevStatusRef = useRef<GameState['status'] | null>(null);
   const prevIndexRef = useRef<number>(-1);
+  const hasSavedFinishedRunsRef = useRef<string | null>(null);
 
   const { trails, saveTrail, deleteTrail, isLoading: isTrailsLoading } = useTrails(user);
   const [gameState, dispatch] = useReducer(gameReducer, null);
@@ -467,26 +468,50 @@ const App: React.FC = () => {
       }
 
       // Persist completed player runs to the trail leaderboard if trailId exists
-      if (gameState.trailId && Array.isArray(gameState.players)) {
+      if (gameState.trailId && Array.isArray(gameState.players) && hasSavedFinishedRunsRef.current !== gameState.id) {
+        hasSavedFinishedRunsRef.current = gameState.id;
         const trailId = gameState.trailId;
-        gameState.players.forEach(p => {
-          if (p.name && Array.isArray(p.guesses) && p.guesses.length > 0) {
-            const totalDistanceKm = p.guesses.reduce((acc, g) => acc + (g.distanceKm || 0), 0);
+
+        // If host, save runs for all players who completed guesses
+        if (isHost) {
+          gameState.players.forEach(p => {
+            if (p.name && Array.isArray(p.guesses) && p.guesses.length > 0) {
+              const totalDistanceKm = p.guesses.reduce((acc, g) => acc + (g.distanceKm || 0), 0);
+              saveTrailRun({
+                trailId,
+                playerName: p.name,
+                playerColor: p.color,
+                totalDistanceKm,
+                totalScore: p.score || 0,
+                guesses: p.guesses,
+                isSolo: false
+              }).catch(err => {
+                console.warn("Could not save live trail run:", err);
+              });
+            }
+          });
+        } else if (currentPlayer) {
+          // If player on their own device, save their own run to cache their placement locally
+          const myPlayer = gameState.players.find(p => p.id === currentPlayer.id) || currentPlayer;
+          if (myPlayer.name && Array.isArray(myPlayer.guesses) && myPlayer.guesses.length > 0) {
+            const totalDistanceKm = myPlayer.guesses.reduce((acc, g) => acc + (g.distanceKm || 0), 0);
             saveTrailRun({
               trailId,
-              playerName: p.name,
-              playerColor: p.color,
+              playerName: myPlayer.name,
+              playerColor: myPlayer.color,
               totalDistanceKm,
-              totalScore: p.score || 0,
-              guesses: p.guesses
+              totalScore: myPlayer.score || 0,
+              guesses: myPlayer.guesses
             }).catch(err => {
-              console.warn("Could not save live trail run:", err);
+              console.warn("Could not cache local live trail run:", err);
             });
           }
-        });
+        }
       }
+    } else if (gameState?.status === 'PLAYING') {
+      hasSavedFinishedRunsRef.current = null;
     }
-  }, [gameState?.status, gameState?.trailId, gameState?.players]);
+  }, [gameState?.status, gameState?.id, gameState?.trailId, gameState?.players, isHost, currentPlayer]);
 
   // Player: Sync loop when waiting for game data
   useEffect(() => {

@@ -30,7 +30,7 @@ export function getCompletedTrailRun(trailId: string): TrailRun | null {
 }
 
 /**
- * Saves a completed solo trail run to Supabase (and caches in localStorage).
+ * Saves a completed trail run to Supabase (and caches in localStorage).
  */
 export async function saveTrailRun(runData: {
   trailId: string;
@@ -39,29 +39,12 @@ export async function saveTrailRun(runData: {
   totalDistanceKm: number;
   totalScore: number;
   guesses: SpotGuess[];
+  isSolo?: boolean;
 }): Promise<{ success: boolean; run?: TrailRun; error?: string }> {
-  // Check if player or device already has a recorded run for this trail
-  const existingCompleted = getCompletedTrailRun(runData.trailId);
-  if (existingCompleted) {
-    return { success: true, run: existingCompleted };
-  }
-
-  const existingRuns = await loadTrailRuns(runData.trailId);
-  const existingPlayerRun = existingRuns.find(
-    r => r.playerName.trim().toLowerCase() === runData.playerName.trim().toLowerCase()
-  );
-
-  if (existingPlayerRun) {
-    try {
-      localStorage.setItem(`${LOCAL_STORAGE_COMPLETED_PREFIX}${runData.trailId}`, JSON.stringify(existingPlayerRun));
-    } catch {}
-    return { success: true, run: existingPlayerRun };
-  }
-
   const newRun: TrailRun = {
     id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `run_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     trailId: runData.trailId,
-    playerName: runData.playerName,
+    playerName: runData.playerName.trim() || 'Explorer',
     playerColor: runData.playerColor,
     totalDistanceKm: runData.totalDistanceKm,
     totalScore: runData.totalScore,
@@ -69,18 +52,18 @@ export async function saveTrailRun(runData: {
     createdAt: new Date().toISOString()
   };
 
-  // Save to Supabase if available first to obtain official DB ID
+  // Save to Supabase if available to obtain official DB ID
   if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabase
         .from('trail_runs')
         .insert([{
           trail_id: runData.trailId,
-          player_name: runData.playerName,
-          player_color: runData.playerColor,
-          total_distance_km: runData.totalDistanceKm,
-          total_score: runData.totalScore,
-          guesses: runData.guesses
+          player_name: newRun.playerName,
+          player_color: newRun.playerColor,
+          total_distance_km: newRun.totalDistanceKm,
+          total_score: newRun.totalScore,
+          guesses: newRun.guesses
         }])
         .select()
         .single();
@@ -100,13 +83,15 @@ export async function saveTrailRun(runData: {
   try {
     const key = `${LOCAL_STORAGE_RUNS_PREFIX}${runData.trailId}`;
     const existing = JSON.parse(localStorage.getItem(key) || '[]') as TrailRun[];
-    const filtered = existing.filter(
-      r => r.id !== newRun.id && r.playerName.trim().toLowerCase() !== newRun.playerName.trim().toLowerCase()
-    );
+    const filtered = existing.filter(r => r.id !== newRun.id);
     filtered.push(newRun);
     localStorage.setItem(key, JSON.stringify(filtered));
-    localStorage.setItem(`locateit_last_run_${runData.trailId}`, newRun.id);
-    localStorage.setItem(`${LOCAL_STORAGE_COMPLETED_PREFIX}${runData.trailId}`, JSON.stringify(newRun));
+    
+    // Only mark device as having completed this trail if it was a solo run or active player
+    if (runData.isSolo !== false) {
+      localStorage.setItem(`locateit_last_run_${runData.trailId}`, newRun.id);
+      localStorage.setItem(`${LOCAL_STORAGE_COMPLETED_PREFIX}${runData.trailId}`, JSON.stringify(newRun));
+    }
   } catch (e) {
     console.warn("Could not save run to local storage:", e);
   }
@@ -154,13 +139,11 @@ export async function loadTrailRuns(trailId: string): Promise<TrailRun[]> {
         createdAt: d.created_at
       }));
 
-      // Merge remote and local without duplicates (by ID or player name)
+      // Merge remote and local without duplicate IDs
       const seenIds = new Set(remoteRuns.map(r => r.id));
-      const seenPlayerNames = new Set(remoteRuns.map(r => r.playerName.trim().toLowerCase()));
       const combined = [...remoteRuns];
       for (const lr of localRuns) {
-        const nameKey = lr.playerName.trim().toLowerCase();
-        if (!seenIds.has(lr.id) && !seenPlayerNames.has(nameKey)) {
+        if (!seenIds.has(lr.id)) {
           combined.push(lr);
         }
       }
@@ -189,10 +172,10 @@ export function calculateLeaderboard(runs: TrailRun[], totalQuestions: number): 
     // Collect guesses for this question
     const spotDistances: { runId: string; distanceKm: number }[] = [];
     for (const r of runs) {
-      const g = r.guesses.find(guess => guess.questionIndex === qIdx);
+      const g = (r.guesses || []).find(guess => guess.questionIndex === qIdx);
       spotDistances.push({
         runId: r.id,
-        distanceKm: g !== undefined ? g.distanceKm : Infinity
+        distanceKm: g !== undefined && typeof g.distanceKm === 'number' && !isNaN(g.distanceKm) ? g.distanceKm : Infinity
       });
     }
 
@@ -214,21 +197,21 @@ export function calculateLeaderboard(runs: TrailRun[], totalQuestions: number): 
   }
 
   // 2. Sort by Distance for Distance Rankings
-  const sortedByDistance = [...runs].sort((a, b) => a.totalDistanceKm - b.totalDistanceKm);
+  const sortedByDistance = [...runs].sort((a, b) => (a.totalDistanceKm || 0) - (b.totalDistanceKm || 0));
 
   // 3. Sort by Points for Point Rankings
   const sortedByPoints = [...runs].sort((a, b) => {
     const ptsA = pointsMap.get(a.id)?.points || 0;
     const ptsB = pointsMap.get(b.id)?.points || 0;
     if (ptsB !== ptsA) return ptsB - ptsA;
-    return a.totalDistanceKm - b.totalDistanceKm; // Tie breaker: lowest distance
+    return (a.totalDistanceKm || 0) - (b.totalDistanceKm || 0); // Tie breaker: lowest distance
   });
 
   // 4. Construct final rankings array
   return runs.map(r => {
-    const dRank = sortedByDistance.findIndex(s => s.totalDistanceKm === r.totalDistanceKm) + 1;
+    const dRank = sortedByDistance.findIndex(s => s.id === r.id) + 1;
     const pInfo = pointsMap.get(r.id) || { points: 0, spotWins: 0 };
-    const pRank = sortedByPoints.findIndex(s => (pointsMap.get(s.id)?.points || 0) === pInfo.points) + 1;
+    const pRank = sortedByPoints.findIndex(s => s.id === r.id) + 1;
 
     return {
       run: r,
