@@ -538,7 +538,7 @@ const App: React.FC = () => {
         hasSavedFinishedRunsRef.current = gameState.id;
         const trailId = gameState.trailId;
 
-        // If host, save runs in batch for all players who have guesses
+        // In a live match, ONLY the host saves runs in batch for all players to avoid double saving
         if (isHost) {
           const runsToSave = gameState.players
             .filter((p): p is typeof p & { guesses: NonNullable<typeof p.guesses> } => 
@@ -558,25 +558,19 @@ const App: React.FC = () => {
             });
           }
         } else if (currentPlayer) {
-          // If player on their own device, cache their own run locally and note run ID
+          // On the player's device, mark the trail as completed locally without executing a duplicate DB insert
           const myPlayer = gameState.players.find(p => p.id === currentPlayer.id) || currentPlayer;
           if (myPlayer.name && Array.isArray(myPlayer.guesses) && myPlayer.guesses.length > 0) {
-            const totalDistanceKm = myPlayer.guesses.reduce((acc, g) => acc + (g.distanceKm || 0), 0);
-            saveTrailRun({
-              trailId,
-              playerName: myPlayer.name,
-              playerColor: myPlayer.color,
-              totalDistanceKm,
-              totalScore: myPlayer.score || 0,
-              guesses: myPlayer.guesses,
-              isSolo: false
-            }).then(res => {
-              if (res.run) {
-                localStorage.setItem(`locateit_last_run_${trailId}`, res.run.id);
-              }
-            }).catch(err => {
-              console.warn("Could not cache local live trail run:", err);
-            });
+            try {
+              localStorage.setItem(`locateit_completed_trail_${trailId}`, JSON.stringify({
+                trailId,
+                playerName: myPlayer.name,
+                playerColor: myPlayer.color,
+                totalDistanceKm: myPlayer.guesses.reduce((acc, g) => acc + (g.distanceKm || 0), 0),
+                totalScore: myPlayer.score || 0,
+                guesses: myPlayer.guesses
+              }));
+            } catch {}
           }
         }
       }

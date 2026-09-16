@@ -123,7 +123,7 @@ const GameBoard: React.FC<GameBoardProps> = ({
               </div>
             ))}
           </div>
-          {gameState.trailId && (
+          {gameState.trailId && isHost && (
             <div className="mt-3 px-3 py-2 bg-[#2d4239]/5 border border-[#2d4239]/10 rounded-2xl flex items-center justify-center gap-2 text-center">
               <svg className="w-3.5 h-3.5 text-[#2d4239]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />

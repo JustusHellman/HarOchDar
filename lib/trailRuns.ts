@@ -170,61 +170,93 @@ export async function saveTrailRunsBatch(trailId: string, runsData: {
 }
 
 /**
- * Loads all completed runs for a given trail from Supabase, merged with local runs.
+ * Loads all completed runs for a given trail from Supabase, merged with local runs and deduplicated.
  */
 export async function loadTrailRuns(trailId: string): Promise<TrailRun[]> {
   const localKey = `${LOCAL_STORAGE_RUNS_PREFIX}${trailId}`;
   let localRuns: TrailRun[] = [];
   try {
     localRuns = JSON.parse(localStorage.getItem(localKey) || '[]');
-  } catch (e) {
+  } catch {
     localRuns = [];
   }
 
-  if (!isSupabaseConfigured) {
-    return localRuns;
-  }
+  let rawRuns: TrailRun[] = [];
 
-  try {
-    const { data, error } = await supabase
-      .from('trail_runs')
-      .select('*')
-      .eq('trail_id', trailId)
-      .order('created_at', { ascending: false });
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase
+        .from('trail_runs')
+        .select('*')
+        .eq('trail_id', trailId)
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      console.warn("Error fetching trail runs from Supabase:", error.message);
-      return localRuns;
-    }
-
-    if (data && data.length > 0) {
-      const remoteRuns: TrailRun[] = data.map((d: any) => ({
-        id: d.id,
-        trailId: d.trail_id,
-        playerName: d.player_name,
-        playerColor: d.player_color,
-        totalDistanceKm: Number(d.total_distance_km),
-        totalScore: Number(d.total_score),
-        guesses: d.guesses || [],
-        createdAt: d.created_at
-      }));
-
-      // Merge remote and local without duplicate IDs
-      const seenIds = new Set(remoteRuns.map(r => r.id));
-      const combined = [...remoteRuns];
-      for (const lr of localRuns) {
-        if (!seenIds.has(lr.id)) {
-          combined.push(lr);
-        }
+      if (!error && data && data.length > 0) {
+        rawRuns = data.map((d: any) => ({
+          id: d.id,
+          trailId: d.trail_id,
+          playerName: d.player_name,
+          playerColor: d.player_color,
+          totalDistanceKm: Number(d.total_distance_km),
+          totalScore: Number(d.total_score),
+          guesses: d.guesses || [],
+          createdAt: d.created_at
+        }));
       }
-      return combined;
+    } catch (err) {
+      console.warn("Failed to load trail runs from Supabase:", err);
     }
-
-    return localRuns;
-  } catch (err) {
-    console.warn("Failed to load trail runs:", err);
-    return localRuns;
   }
+
+  if (rawRuns.length === 0) {
+    rawRuns = localRuns;
+  } else {
+    // Append any genuine offline local runs not yet in remote
+    const seenIds = new Set(rawRuns.map(r => r.id));
+    for (const lr of localRuns) {
+      if (!seenIds.has(lr.id)) {
+        rawRuns.push(lr);
+      }
+    }
+  }
+
+  // Deduplicate identical runs (e.g. from historical double saves or simultaneous client inserts)
+  const deduplicatedRuns: TrailRun[] = [];
+
+  for (const r of rawRuns) {
+    const rTime = r.createdAt ? new Date(r.createdAt).getTime() : 0;
+    const rDistKey = (r.totalDistanceKm || 0).toFixed(4);
+    const rNameKey = (r.playerName || 'Explorer').trim().toLowerCase();
+    const rGuessSig = (r.guesses || []).map(g => `${g.questionIndex}:${(g.distanceKm || 0).toFixed(3)}`).join('|');
+
+    // A run is only a duplicate if it matches the exact same player name, identical guess distances on every spot,
+    // AND was recorded at the exact same time (within a 5-minute window of concurrent double-save)
+    const isDuplicate = deduplicatedRuns.some(existing => {
+      const existingNameKey = (existing.playerName || 'Explorer').trim().toLowerCase();
+      if (existingNameKey !== rNameKey) return false;
+
+      const existingDistKey = (existing.totalDistanceKm || 0).toFixed(4);
+      if (existingDistKey !== rDistKey) return false;
+
+      const existingGuessSig = (existing.guesses || []).map(g => `${g.questionIndex}:${(g.distanceKm || 0).toFixed(3)}`).join('|');
+      if (existingGuessSig !== rGuessSig) return false;
+
+      // If both have timestamps, ensure they occurred within 5 minutes of each other (concurrent save)
+      const existingTime = existing.createdAt ? new Date(existing.createdAt).getTime() : 0;
+      if (rTime > 0 && existingTime > 0) {
+        const diffMinutes = Math.abs(rTime - existingTime) / (1000 * 60);
+        return diffMinutes <= 5;
+      }
+
+      return true;
+    });
+
+    if (!isDuplicate) {
+      deduplicatedRuns.push(r);
+    }
+  }
+
+  return deduplicatedRuns;
 }
 
 /**
