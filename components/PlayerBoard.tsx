@@ -204,7 +204,11 @@ const PlayerBoard: React.FC<PlayerBoardProps> = ({
       </div>
 
       {isFullscreenImage && (
-        <ImageOverlay imageUrl={currentQ.imageUrl} onClose={() => setIsFullscreenImage(false)} />
+        <ImageOverlay 
+          imageUrl={currentQ.imageUrl} 
+          title={isRoundFinished ? (currentQ.title || strings.creator.spotPlaceholder(gameState.currentQuestionIndex + 1)) : strings.creator.spotPlaceholder(gameState.currentQuestionIndex + 1)} 
+          onClose={() => setIsFullscreenImage(false)} 
+        />
       )}
     </div>
   );

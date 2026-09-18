@@ -242,7 +242,11 @@ const HostBoard: React.FC<HostBoardProps> = ({
       </div>
 
       {isFullscreenImage && (
-        <ImageOverlay imageUrl={currentQ.imageUrl} onClose={() => setIsFullscreenImage(false)} />
+        <ImageOverlay 
+          imageUrl={currentQ.imageUrl} 
+          title={currentQ.title || strings.creator.spotPlaceholder(gameState.currentQuestionIndex + 1)} 
+          onClose={() => setIsFullscreenImage(false)} 
+        />
       )}
     </div>
   );

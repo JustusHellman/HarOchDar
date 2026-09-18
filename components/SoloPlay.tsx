@@ -379,7 +379,7 @@ export const SoloPlay: React.FC<SoloPlayProps> = ({
       {isFullscreenImage && (
         <ImageOverlay 
           imageUrl={currentQ.imageUrl} 
-          title={currentQ.title || strings.creator.spotPlaceholder(currentIndex + 1)} 
+          title={isLockedIn ? (currentQ.title || strings.creator.spotPlaceholder(currentIndex + 1)) : strings.creator.spotPlaceholder(currentIndex + 1)} 
           onClose={() => setIsFullscreenImage(false)} 
         />
       )}
