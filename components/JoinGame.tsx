@@ -6,6 +6,7 @@ interface JoinGameProps {
   onBack: () => void;
   onJoin: (code: string, name: string, color: string) => void;
   onCodeChange?: (code: string) => void;
+  onCancelRejoin?: () => void;
   isSearching: boolean;
   isRejoining?: boolean;
   error: string | null;
@@ -30,6 +31,7 @@ const JoinGame: React.FC<JoinGameProps> = ({
   onBack, 
   onJoin, 
   onCodeChange, 
+  onCancelRejoin,
   isSearching, 
   isRejoining, 
   error, 
@@ -108,6 +110,8 @@ const JoinGame: React.FC<JoinGameProps> = ({
   const activeColor = isCustomColor ? customColor : selectedColor;
   const isFormValid = Boolean(name.trim() && code.trim());
 
+  const handleCancel = onCancelRejoin || onBack;
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 bg-[#f9fbfa] relative">
       <div className="fixed top-5 right-5 sm:top-6 sm:right-6 z-50">
@@ -115,11 +119,42 @@ const JoinGame: React.FC<JoinGameProps> = ({
       </div>
 
       {isRejoining && (
-        <div className="fixed inset-0 z-[50] bg-[#f9fbfa]/80 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-500">
-          <div className="w-16 h-16 bg-white rounded-[2rem] shadow-xl flex items-center justify-center mb-6 animate-bounce">
+        <div className="fixed inset-0 z-[60] bg-[#f9fbfa]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
+          <div className="w-16 h-16 bg-white rounded-[2rem] shadow-xl flex items-center justify-center mb-5 border border-black/5 animate-bounce">
              <div className="w-6 h-6 border-4 border-[#2d4239] border-t-transparent rounded-full animate-spin"></div>
           </div>
-          <p className="text-[#2d4239] font-black uppercase tracking-[0.4em] text-[10px]">{strings.join.rejoiningSession}</p>
+          <p className="text-[#2d4239] font-black uppercase tracking-[0.3em] text-xs mb-1.5">{strings.join.rejoiningSession}</p>
+          <p className="text-[#0f1a16]/60 text-xs font-medium mb-6 max-w-xs">{strings.join.rejoiningDesc}</p>
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="px-6 py-3 rounded-2xl bg-white hover:bg-[#f4f7f6] text-[#2d4239] font-black text-xs uppercase tracking-widest border border-[#2d4239]/20 shadow-sm transition-all active:scale-95 flex items-center gap-2 hover:shadow-md"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            {strings.join.cancelRejoin}
+          </button>
+        </div>
+      )}
+
+      {isSearching && !isRejoining && (
+        <div className="fixed inset-0 z-[60] bg-[#f9fbfa]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
+          <div className="w-16 h-16 bg-white rounded-[2rem] shadow-xl flex items-center justify-center mb-5 border border-black/5 animate-bounce">
+             <div className="w-6 h-6 border-4 border-[#2d4239] border-t-transparent rounded-full animate-spin"></div>
+          </div>
+          <p className="text-[#2d4239] font-black uppercase tracking-[0.3em] text-xs mb-1.5">{strings.join.searchingGame}</p>
+          <p className="text-[#0f1a16]/60 text-xs font-medium mb-6 max-w-xs">{strings.join.searchingDesc}</p>
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="px-6 py-3 rounded-2xl bg-white hover:bg-[#f4f7f6] text-[#2d4239] font-black text-xs uppercase tracking-widest border border-[#2d4239]/20 shadow-sm transition-all active:scale-95 flex items-center gap-2 hover:shadow-md"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            {strings.join.cancelRejoin}
+          </button>
         </div>
       )}
 

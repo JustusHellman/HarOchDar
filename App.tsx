@@ -167,7 +167,9 @@ const App: React.FC = () => {
   
   // Use a ref for sendAction to break the circular dependency with handleExitGame
   const sendActionRef = useRef<((action: GameSyncMessage) => void) | null>(null);
+  const clearCacheRef = useRef<(() => void) | null>(null);
   const joinTimeoutRef = useRef<number | null>(null);
+  const rejoinTimeoutRef = useRef<number | null>(null);
   const prevStatusRef = useRef<GameState['status'] | null>(null);
   const prevIndexRef = useRef<number>(-1);
   const hasSavedFinishedRunsRef = useRef<string | null>(null);
@@ -244,6 +246,35 @@ const App: React.FC = () => {
     }
   }, [gameState?.status, gameState?.id, view, navigateTo]);
 
+  // Cancel active connection / rejoin attempt and return safely
+  const handleCancelRejoin = useCallback(() => {
+    if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
+    if (rejoinTimeoutRef.current) clearTimeout(rejoinTimeoutRef.current);
+    setIsRejoining(false);
+    setIsJoining(false);
+    setJoinError(null);
+    try {
+      localStorage.removeItem('locateit_active_game_code');
+      localStorage.removeItem('locateit_join_intent');
+      localStorage.removeItem('locateit_saved_guess');
+      localStorage.removeItem('locateit_saved_round');
+    } catch {
+      // ignore
+    }
+    setJoinCode(null);
+    navigateTo('HOME', { replace: true });
+  }, [navigateTo]);
+
+  const handleHomeJoin = useCallback(() => {
+    if (rejoinTimeoutRef.current) clearTimeout(rejoinTimeoutRef.current);
+    if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
+    setIsRejoining(false);
+    setIsJoining(false);
+    setJoinError(null);
+    setJoinCode(null);
+    navigateTo('JOIN');
+  }, [navigateTo]);
+
   // handleExitGame is defined here and uses sendActionRef to avoid "used before declaration" error
   const handleExitGame = useCallback((silent = false, targetView?: AppView) => {
     // 1. Snapshot the player identity and host status before clearing
@@ -252,8 +283,10 @@ const App: React.FC = () => {
 
     // 2. Clear state immediately to stop watchers and callbacks
     if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
+    if (rejoinTimeoutRef.current) clearTimeout(rejoinTimeoutRef.current);
     setCurrentPlayer(null);
     setIsJoining(false);
+    setIsRejoining(false);
     setJoinCode(null);
     setIsHost(false);
     prevStatusRef.current = null;
@@ -277,7 +310,8 @@ const App: React.FC = () => {
       sendActionRef.current?.({ type: 'PLAYER_LEAVE', playerId: pId });
     }
 
-    // 5. Exit game reducer
+    // 5. Clear network cache and exit game reducer
+    clearCacheRef.current?.();
     dispatch({ type: 'EXIT_GAME' });
     
     // 6. Safely route back:
@@ -307,10 +341,11 @@ const App: React.FC = () => {
     }, [handleExitGame, gameState?.status])
   );
 
-  // Sync the sendAction function to our ref for handleExitGame to use
+  // Sync the sendAction and clearCache functions to our refs for handleExitGame to use
   useEffect(() => {
     sendActionRef.current = sendAction;
-  }, [sendAction]);
+    clearCacheRef.current = clearCache;
+  }, [sendAction, clearCache]);
 
   const handleStartSoloPlay = useCallback((trail: Trail, name: string, color: string) => {
     setSelectedSoloTrail(trail);
@@ -414,16 +449,8 @@ const App: React.FC = () => {
         if (cleanCode.startsWith('OT')) {
           const trail = await fetchTrailByCode(cleanCode);
           if (trail) {
-            const savedName = localStorage.getItem('locateit_player_name');
-            const savedColor = localStorage.getItem('locateit_player_color') || '#2563eb';
-            if (hasCompletedTrail(trail.id)) {
-              handleOpenLeaderboard(trail);
-            } else if (savedName) {
-              handleStartSoloPlay(trail, savedName, savedColor);
-            } else {
-              setJoinCode(getOpenTrailCode(trail.id));
-              navigateTo('JOIN', { code: getOpenTrailCode(trail.id), replace: true });
-            }
+            setJoinCode(getOpenTrailCode(trail.id));
+            navigateTo('JOIN', { code: getOpenTrailCode(trail.id), replace: true });
             return;
           }
         }
@@ -434,27 +461,13 @@ const App: React.FC = () => {
         const soloCode = soloTrailIdFromUrl.trim();
         // Clean URL query parameter so address bar doesn't have duplicate codes
         try {
-          window.history.replaceState(null, '', window.location.pathname + `#solo?trailId=${encodeURIComponent(soloCode)}`);
+          window.history.replaceState(null, '', window.location.pathname + `#join?code=${encodeURIComponent(soloCode)}`);
         } catch {}
 
         const trail = await fetchTrailByCode(soloCode);
-        if (trail) {
-          if (hasCompletedTrail(trail.id)) {
-            handleOpenLeaderboard(trail);
-          } else {
-            const savedName = localStorage.getItem('locateit_player_name');
-            const savedColor = localStorage.getItem('locateit_player_color') || '#2563eb';
-            if (savedName) {
-              handleStartSoloPlay(trail, savedName, savedColor);
-            } else {
-              setJoinCode(getOpenTrailCode(trail.id));
-              navigateTo('JOIN', { code: getOpenTrailCode(trail.id), replace: true });
-            }
-          }
-        } else {
-          setJoinCode(soloCode.toUpperCase());
-          navigateTo('JOIN', { code: soloCode.toUpperCase(), replace: true });
-        }
+        const codeToUse = trail ? getOpenTrailCode(trail.id) : soloCode.toUpperCase();
+        setJoinCode(codeToUse);
+        navigateTo('JOIN', { code: codeToUse, replace: true });
         return;
       }
 
@@ -607,6 +620,7 @@ const App: React.FC = () => {
       if (savedId && savedCode === gameState.id) {
         const existing = gameState.players.find(p => p.id === savedId);
         if (existing) {
+          if (rejoinTimeoutRef.current) clearTimeout(rejoinTimeoutRef.current);
           setCurrentPlayer(existing);
           setIsJoining(false);
           setIsRejoining(false);
@@ -688,6 +702,15 @@ const App: React.FC = () => {
     } else if (savedCode) {
       setJoinCode(savedCode);
       setIsRejoining(true);
+      if (rejoinTimeoutRef.current) clearTimeout(rejoinTimeoutRef.current);
+      rejoinTimeoutRef.current = window.setTimeout(() => {
+        setIsRejoining(false);
+        try {
+          localStorage.removeItem('locateit_active_game_code');
+        } catch {
+          // ignore
+        }
+      }, 3500);
       navigateTo('JOIN', { code: savedCode, replace: true });
     }
 
@@ -870,12 +893,13 @@ const App: React.FC = () => {
       )}
       {showPermissionModal && <PermissionModal onClose={() => setShowPermissionModal(false)} />}
       {view === 'HOME' && (
-        <Home onJoin={() => navigateTo('JOIN')} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
+        <Home onJoin={handleHomeJoin} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
       )}
       {view === 'JOIN' && (
         <JoinGame 
           prefilledCode={joinCode || ''} 
-          onBack={() => { handleExitGame(); navigateTo('HOME'); }} 
+          onBack={() => { handleCancelRejoin(); }} 
+          onCancelRejoin={handleCancelRejoin}
           onJoin={handleJoinGame} 
           onCodeChange={setJoinCode} 
           isSearching={isJoining} 
@@ -920,7 +944,7 @@ const App: React.FC = () => {
             onResumeHost={localStorage.getItem('locateit_active_host_state') ? handleResumeHost : undefined}
           />
         ) : (
-          <Home onJoin={() => navigateTo('JOIN')} onDesign={() => navigateTo('AUTH')} />
+          <Home onJoin={handleHomeJoin} onDesign={() => navigateTo('AUTH')} />
         )
       )}
       {view === 'SOLO_PLAY' && (
@@ -936,7 +960,7 @@ const App: React.FC = () => {
             }} 
           />
         ) : (
-          <Home onJoin={() => { setJoinCode(null); navigateTo('JOIN'); }} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
+          <Home onJoin={handleHomeJoin} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
         )
       )}
       {view === 'LEADERBOARD' && (
@@ -954,7 +978,7 @@ const App: React.FC = () => {
             }} 
           />
         ) : (
-          <Home onJoin={() => { setJoinCode(null); navigateTo('JOIN'); }} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
+          <Home onJoin={handleHomeJoin} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
         )
       )}
       {view === 'CREATE' && (
@@ -967,7 +991,7 @@ const App: React.FC = () => {
             isSaving={isSaving}
           />
         ) : (
-          <Home onJoin={() => { setJoinCode(null); navigateTo('JOIN'); }} onDesign={() => navigateTo('AUTH')} />
+          <Home onJoin={handleHomeJoin} onDesign={() => navigateTo('AUTH')} />
         )
       )}
       {view === 'LOBBY' && (
@@ -984,7 +1008,7 @@ const App: React.FC = () => {
             }} 
           />
         ) : (
-          <Home onJoin={() => { setJoinCode(null); navigateTo('JOIN'); }} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
+          <Home onJoin={handleHomeJoin} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
         )
       )}
       {view === 'PLAYING' && (
@@ -1044,7 +1068,7 @@ const App: React.FC = () => {
             }}
           />
         ) : (
-          <Home onJoin={() => { setJoinCode(null); navigateTo('JOIN'); }} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
+          <Home onJoin={handleHomeJoin} onDesign={() => user ? navigateTo('DASHBOARD') : navigateTo('AUTH')} />
         )
       )}
     </>
